@@ -1153,15 +1153,14 @@ def team_init(
         return
 
     import secrets
+    from matteros.team.users import hash_password
 
     temp_password = secrets.token_urlsafe(16)
-    import hashlib
-
-    password_hash = hashlib.sha256(temp_password.encode()).hexdigest()
+    password_hash = hash_password(temp_password)
 
     user_id = manager.create_user(
         username=admin_username,
-        role="admin",
+        role="dev",
         password_hash=password_hash,
     )
     typer.echo(f"team mode initialized")
@@ -1190,11 +1189,10 @@ def team_add_user(
         raise typer.Exit(code=1)
 
     import secrets
+    from matteros.team.users import hash_password
 
     temp_password = secrets.token_urlsafe(16)
-    import hashlib
-
-    password_hash = hashlib.sha256(temp_password.encode()).hexdigest()
+    password_hash = hash_password(temp_password)
 
     user_id = manager.create_user(username=username, role=role, password_hash=password_hash)
     typer.echo(f"created user: {username} (role={role}, id={user_id[:8]})")
