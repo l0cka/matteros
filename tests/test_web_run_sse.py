@@ -9,12 +9,17 @@ from pathlib import Path
 from httpx import ASGITransport, AsyncClient
 
 from matteros.core.store import SQLiteStore
+from matteros.team.users import UserManager, hash_password
 from matteros.web.app import create_app
+from matteros.web.auth import SESSION_COOKIE_NAME, create_session
 
 
-def _init_home(home: Path) -> None:
+def _init_home(home: Path) -> str:
+    """Set up home dir with a dev user and test data. Returns session cookie value."""
     home.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(home / "matteros.db")
+    manager = UserManager(store)
+    user_id = manager.create_user(username="dev", role="dev", password_hash=hash_password("p"))
     # Insert a run and some events scoped to it
     with store.connection() as conn:
         conn.execute(
@@ -39,13 +44,13 @@ def _init_home(home: Path) -> None:
             ("run-other", "2024-01-01T00:00:03Z", "run.started", "system", None, "{}", "h2", "h3"),
         )
         conn.commit()
+    return create_session(store, user_id)
 
 
 def test_per_run_sse_scoped(tmp_path):
     home = tmp_path / "matteros"
-    _init_home(home)
+    session_id = _init_home(home)
     app = create_app(home=home)
-    token = app.state.web_token
 
     async def _test():
         transport = ASGITransport(app=app)
@@ -55,7 +60,7 @@ def test_per_run_sse_scoped(tmp_path):
                 "GET",
                 "/runs/run-sse-1/live",
                 params={"since": 0},
-                headers={"Authorization": f"Bearer {token}"},
+                cookies={SESSION_COOKIE_NAME: session_id},
                 timeout=5.0,
             ) as resp:
                 async for line in resp.aiter_lines():
@@ -75,9 +80,8 @@ def test_per_run_sse_scoped(tmp_path):
 
 def test_per_run_sse_stops_on_completion(tmp_path):
     home = tmp_path / "matteros"
-    _init_home(home)
+    session_id = _init_home(home)
     app = create_app(home=home)
-    token = app.state.web_token
 
     async def _test():
         transport = ASGITransport(app=app)
@@ -87,7 +91,7 @@ def test_per_run_sse_stops_on_completion(tmp_path):
                 "GET",
                 "/runs/run-sse-1/live",
                 params={"since": 0},
-                headers={"Authorization": f"Bearer {token}"},
+                cookies={SESSION_COOKIE_NAME: session_id},
                 timeout=5.0,
             ) as resp:
                 async for line in resp.aiter_lines():

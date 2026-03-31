@@ -140,7 +140,7 @@ class DraftManager:
             conn.commit()
 
     def _row_to_draft(self, row: Any) -> dict[str, Any]:
-        return {
+        result = {
             "id": row["id"],
             "run_id": row["run_id"],
             "status": row["status"],
@@ -149,3 +149,9 @@ class DraftManager:
             "entry": json.loads(row["entry_json"]) if row["entry_json"] else {},
             "pattern_ids": json.loads(row["pattern_ids_json"]) if row["pattern_ids_json"] else [],
         }
+        # user_id column added in v003 migration
+        try:
+            result["user_id"] = row["user_id"]
+        except (IndexError, KeyError):
+            result["user_id"] = "solo"
+        return result

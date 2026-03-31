@@ -1,14 +1,18 @@
 """User management for team mode.
 
 Roles:
-- admin: full access, user management
-- attorney: create/view runs, approve own entries
-- reviewer: approve entries, view audit
+- dev: full access including user management
+- partner_gc: senior legal leadership, full access except user management
+- sr_solicitor: senior lawyer, can approve for others
+- solicitor: lawyer, can approve own entries
+- paralegal: support staff, create/view drafts and runs
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -16,7 +20,56 @@ from typing import Any
 from matteros.core.store import SQLiteStore
 
 
-VALID_ROLES = {"admin", "attorney", "reviewer"}
+def hash_password(password: str) -> str:
+    """Hash a password with scrypt and a random 16-byte salt.
+
+    Returns 'salt_hex$scrypt_hex'.
+    """
+    salt = os.urandom(16)
+    derived = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1, dklen=32)
+    return f"{salt.hex()}${derived.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify a password against a stored 'salt_hex$scrypt_hex' hash.
+
+    Returns False for legacy unsalted SHA-256 hashes (no '$' separator).
+    """
+    if "$" not in stored_hash:
+        return False
+    salt_hex, hash_hex = stored_hash.split("$", 1)
+    try:
+        salt = bytes.fromhex(salt_hex)
+    except ValueError:
+        return False
+    derived = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1, dklen=32)
+    return derived.hex() == hash_hex
+
+
+VALID_ROLES = {"dev", "partner_gc", "sr_solicitor", "solicitor", "paralegal"}
+
+# Permission matrix: role -> set of allowed actions
+ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "dev": {
+        "manage_users", "manage_settings", "run_playbooks", "create_drafts",
+        "approve_own", "approve_others", "view_runs", "view_audit", "view_reports", "view_drafts",
+    },
+    "partner_gc": {
+        "manage_settings", "run_playbooks", "create_drafts",
+        "approve_own", "approve_others", "view_runs", "view_audit", "view_reports", "view_drafts",
+    },
+    "sr_solicitor": {
+        "run_playbooks", "create_drafts", "approve_own", "approve_others",
+        "view_runs", "view_audit", "view_reports", "view_drafts",
+    },
+    "solicitor": {
+        "run_playbooks", "create_drafts", "approve_own",
+        "view_runs", "view_audit", "view_drafts",
+    },
+    "paralegal": {
+        "create_drafts", "view_runs", "view_drafts",
+    },
+}
 
 
 class UserManager:
@@ -82,27 +135,9 @@ class UserManager:
             conn.commit()
 
     def check_permission(self, user_id: str, action: str) -> bool:
-        """Check if a user has permission for an action.
-
-        Permission matrix:
-        - admin: all actions
-        - attorney: run, approve_own, view_audit, view_runs
-        - reviewer: approve, view_audit, view_runs
-        """
         user = self.get_user(user_id)
         if not user:
             return False
-
         role = user["role"]
-        if role == "admin":
-            return True
-
-        attorney_actions = {"run", "approve_own", "view_audit", "view_runs", "view_drafts"}
-        reviewer_actions = {"approve", "view_audit", "view_runs", "view_drafts"}
-
-        if role == "attorney" and action in attorney_actions:
-            return True
-        if role == "reviewer" and action in reviewer_actions:
-            return True
-
-        return False
+        allowed = ROLE_PERMISSIONS.get(role, set())
+        return action in allowed

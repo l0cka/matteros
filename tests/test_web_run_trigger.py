@@ -3,18 +3,23 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from pathlib import Path
 
 from httpx import ASGITransport, AsyncClient
 
 from matteros.core.store import SQLiteStore
+from matteros.team.users import UserManager, hash_password
 from matteros.web.app import create_app
+from matteros.web.auth import SESSION_COOKIE_NAME, create_session
 
 
-def _init_home(home: Path) -> None:
+def _init_home(home: Path) -> str:
+    """Set up home dir with a dev user. Returns session cookie value."""
     home.mkdir(parents=True, exist_ok=True)
-    SQLiteStore(home / "matteros.db")
+    store = SQLiteStore(home / "matteros.db")
+    manager = UserManager(store)
+    user_id = manager.create_user(username="dev", role="dev", password_hash=hash_password("p"))
+    return create_session(store, user_id)
 
 
 def _make_client(app):
@@ -24,7 +29,7 @@ def _make_client(app):
 
 def test_post_returns_run_id(tmp_path):
     home = tmp_path / "matteros"
-    _init_home(home)
+    session_id = _init_home(home)
 
     # Create a playbook
     pb_dir = tmp_path / "playbooks"
@@ -35,14 +40,13 @@ def test_post_returns_run_id(tmp_path):
     )
 
     app = create_app(home=home)
-    token = app.state.web_token
 
     async def _test():
         async with _make_client(app) as client:
             resp = await client.post(
                 "/api/runs",
                 json={"playbook": "test_playbook", "inputs": {}, "dry_run": True},
-                headers={"Authorization": f"Bearer {token}"},
+                cookies={SESSION_COOKIE_NAME: session_id},
             )
             return resp
 
@@ -55,16 +59,15 @@ def test_post_returns_run_id(tmp_path):
 
 def test_post_validates_missing_playbook(tmp_path):
     home = tmp_path / "matteros"
-    _init_home(home)
+    session_id = _init_home(home)
     app = create_app(home=home)
-    token = app.state.web_token
 
     async def _test():
         async with _make_client(app) as client:
             resp = await client.post(
                 "/api/runs",
                 json={"inputs": {}},
-                headers={"Authorization": f"Bearer {token}"},
+                cookies={SESSION_COOKIE_NAME: session_id},
             )
             return resp
 
@@ -74,16 +77,15 @@ def test_post_validates_missing_playbook(tmp_path):
 
 def test_post_rejects_unknown_playbook(tmp_path):
     home = tmp_path / "matteros"
-    _init_home(home)
+    session_id = _init_home(home)
     app = create_app(home=home)
-    token = app.state.web_token
 
     async def _test():
         async with _make_client(app) as client:
             resp = await client.post(
                 "/api/runs",
                 json={"playbook": "nonexistent_playbook"},
-                headers={"Authorization": f"Bearer {token}"},
+                cookies={SESSION_COOKIE_NAME: session_id},
             )
             return resp
 
@@ -105,12 +107,13 @@ def test_post_requires_auth(tmp_path):
             return resp
 
     resp = asyncio.run(_test())
-    assert resp.status_code == 401
+    # Unauthenticated requests get redirected to login
+    assert resp.status_code == 303
 
 
 def test_post_dry_run_defaults_true(tmp_path):
     home = tmp_path / "matteros"
-    _init_home(home)
+    session_id = _init_home(home)
 
     pb_dir = tmp_path / "playbooks"
     pb_dir.mkdir()
@@ -120,14 +123,13 @@ def test_post_dry_run_defaults_true(tmp_path):
     )
 
     app = create_app(home=home)
-    token = app.state.web_token
 
     async def _test():
         async with _make_client(app) as client:
             resp = await client.post(
                 "/api/runs",
                 json={"playbook": "test_pb"},
-                headers={"Authorization": f"Bearer {token}"},
+                cookies={SESSION_COOKIE_NAME: session_id},
             )
             return resp
 

@@ -14,7 +14,7 @@
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'SF Mono', 'Cascadia Code', monospace; background: var(--bg); color: var(--text); display: flex; min-height: 100vh; }
-        nav { width: 220px; background: var(--surface); border-right: 1px solid var(--border); padding: 1rem; position: fixed; height: 100vh; }
+        nav { width: 220px; background: var(--surface); border-right: 1px solid var(--border); padding: 1rem; position: fixed; height: 100vh; display: flex; flex-direction: column; }
         nav h1 { font-size: 1.1rem; color: var(--accent); margin-bottom: 1.5rem; }
         nav a { display: block; padding: 0.5rem 0.75rem; color: var(--muted); text-decoration: none; border-radius: 4px; margin-bottom: 2px; font-size: 0.85rem; }
         nav a:hover, nav a.active { background: var(--bg); color: var(--text); }
@@ -45,12 +45,26 @@
 <body>
     <nav>
         <h1>MatterOS</h1>
+        <div style="font-size:0.75rem; color:var(--muted); margin-bottom:1rem; padding:0 0.75rem;">
+            {{ request.state.user.username }} <span style="opacity:0.5">({{ request.state.user.role }})</span>
+        </div>
         <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Dashboard</a>
+        {% if "view_runs" in request.state.permissions %}
         <a href="/runs" {% if "/runs" in request.url.path %}class="active"{% endif %}>Runs</a>
         <a href="/approvals" {% if "/approvals" in request.url.path %}class="active"{% endif %}>Approvals</a>
+        {% endif %}
+        {% if "view_drafts" in request.state.permissions %}
         <a href="/drafts" {% if "/drafts" in request.url.path %}class="active"{% endif %}>Drafts</a>
+        {% endif %}
+        {% if "view_audit" in request.state.permissions %}
         <a href="/audit" {% if "/audit" in request.url.path %}class="active"{% endif %}>Audit Log</a>
+        {% endif %}
+        {% if "manage_settings" in request.state.permissions %}
         <a href="/settings" {% if "/settings" in request.url.path %}class="active"{% endif %}>Settings</a>
+        {% endif %}
+        <form method="POST" action="/logout" style="margin-top:auto; padding-top:1rem;">
+            <button type="submit" style="background:none; border:none; color:var(--muted); cursor:pointer; font-family:inherit; font-size:0.85rem; padding:0.5rem 0.75rem;">Logout</button>
+        </form>
     </nav>
     <main>
         {% block content %}{% endblock %}

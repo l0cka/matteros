@@ -82,6 +82,46 @@ def test_idempotent_migrations(tmp_path: Path) -> None:
     assert v1 == v2
 
 
+def test_v004_creates_sessions_table_and_migrates_roles(tmp_path: Path) -> None:
+    store = SQLiteStore(tmp_path / "test.db")
+
+    # Insert users with old roles to test migration
+    with store.connection() as conn:
+        conn.execute(
+            "INSERT INTO users (id, username, role, password_hash, created_at, updated_at) "
+            "VALUES ('u1', 'oldadmin', 'admin', 'fakehash', '2025-01-01', '2025-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO users (id, username, role, password_hash, created_at, updated_at) "
+            "VALUES ('u2', 'oldatty', 'attorney', 'fakehash', '2025-01-01', '2025-01-01')"
+        )
+        conn.execute(
+            "INSERT INTO users (id, username, role, password_hash, created_at, updated_at) "
+            "VALUES ('u3', 'oldrev', 'reviewer', 'fakehash', '2025-01-01', '2025-01-01')"
+        )
+        conn.commit()
+
+        # Apply v004
+        from matteros.core.migrations.v004_sessions import upgrade
+        upgrade(conn)
+        conn.commit()
+
+        # Sessions table exists
+        tables = [r[0] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()]
+        assert "sessions" in tables
+
+        # Roles migrated
+        roles = {
+            r["username"]: r["role"]
+            for r in conn.execute("SELECT username, role FROM users").fetchall()
+        }
+        assert roles["oldadmin"] == "dev"
+        assert roles["oldatty"] == "solicitor"
+        assert roles["oldrev"] == "sr_solicitor"
+
+
 def test_foreign_keys_are_enforced_on_connections(tmp_path: Path) -> None:
     store = SQLiteStore(tmp_path / "test.db")
     conn = store._connect()
