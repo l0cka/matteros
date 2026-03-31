@@ -10,12 +10,40 @@ Roles:
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
 
 from matteros.core.store import SQLiteStore
+
+
+def hash_password(password: str) -> str:
+    """Hash a password with scrypt and a random 16-byte salt.
+
+    Returns 'salt_hex$scrypt_hex'.
+    """
+    salt = os.urandom(16)
+    derived = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1, dklen=32)
+    return f"{salt.hex()}${derived.hex()}"
+
+
+def verify_password(password: str, stored_hash: str) -> bool:
+    """Verify a password against a stored 'salt_hex$scrypt_hex' hash.
+
+    Returns False for legacy unsalted SHA-256 hashes (no '$' separator).
+    """
+    if "$" not in stored_hash:
+        return False
+    salt_hex, hash_hex = stored_hash.split("$", 1)
+    try:
+        salt = bytes.fromhex(salt_hex)
+    except ValueError:
+        return False
+    derived = hashlib.scrypt(password.encode(), salt=salt, n=16384, r=8, p=1, dklen=32)
+    return derived.hex() == hash_hex
 
 
 VALID_ROLES = {"dev", "partner_gc", "sr_solicitor", "solicitor", "paralegal"}

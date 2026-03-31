@@ -9,7 +9,7 @@ import pytest
 
 from matteros.core.store import SQLiteStore
 from matteros.team.reports import TeamReports
-from matteros.team.users import UserManager
+from matteros.team.users import UserManager, hash_password, verify_password
 
 
 def test_create_and_get_user(tmp_path: Path) -> None:
@@ -135,6 +135,31 @@ def test_permission_partner_gc_can_manage_settings(tmp_path: Path) -> None:
     assert manager.check_permission(uid, "manage_settings") is True
     assert manager.check_permission(uid, "approve_others") is True
     assert manager.check_permission(uid, "manage_users") is False
+
+
+def test_hash_password_produces_salt_scrypt_format() -> None:
+    h = hash_password("mysecret")
+    parts = h.split("$")
+    assert len(parts) == 2
+    salt_hex, hash_hex = parts
+    assert len(bytes.fromhex(salt_hex)) == 16
+    assert len(hash_hex) > 0
+
+
+def test_verify_password_correct() -> None:
+    h = hash_password("testpass")
+    assert verify_password("testpass", h) is True
+
+
+def test_verify_password_wrong() -> None:
+    h = hash_password("testpass")
+    assert verify_password("wrongpass", h) is False
+
+
+def test_verify_password_rejects_legacy_sha256() -> None:
+    import hashlib
+    legacy_hash = hashlib.sha256(b"oldpass").hexdigest()
+    assert verify_password("oldpass", legacy_hash) is False
 
 
 def test_approval_queue_depth(tmp_path: Path) -> None:
