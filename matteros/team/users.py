@@ -1,9 +1,11 @@
 """User management for team mode.
 
 Roles:
-- admin: full access, user management
-- attorney: create/view runs, approve own entries
-- reviewer: approve entries, view audit
+- dev: full access including user management
+- partner_gc: senior legal leadership, full access except user management
+- sr_solicitor: senior lawyer, can approve for others
+- solicitor: lawyer, can approve own entries
+- paralegal: support staff, create/view drafts and runs
 """
 
 from __future__ import annotations
@@ -16,7 +18,30 @@ from typing import Any
 from matteros.core.store import SQLiteStore
 
 
-VALID_ROLES = {"admin", "attorney", "reviewer"}
+VALID_ROLES = {"dev", "partner_gc", "sr_solicitor", "solicitor", "paralegal"}
+
+# Permission matrix: role -> set of allowed actions
+ROLE_PERMISSIONS: dict[str, set[str]] = {
+    "dev": {
+        "manage_users", "manage_settings", "run_playbooks", "create_drafts",
+        "approve_own", "approve_others", "view_runs", "view_audit", "view_reports", "view_drafts",
+    },
+    "partner_gc": {
+        "manage_settings", "run_playbooks", "create_drafts",
+        "approve_own", "approve_others", "view_runs", "view_audit", "view_reports", "view_drafts",
+    },
+    "sr_solicitor": {
+        "run_playbooks", "create_drafts", "approve_own", "approve_others",
+        "view_runs", "view_audit", "view_reports", "view_drafts",
+    },
+    "solicitor": {
+        "run_playbooks", "create_drafts", "approve_own",
+        "view_runs", "view_audit", "view_drafts",
+    },
+    "paralegal": {
+        "create_drafts", "view_runs", "view_drafts",
+    },
+}
 
 
 class UserManager:
@@ -82,27 +107,9 @@ class UserManager:
             conn.commit()
 
     def check_permission(self, user_id: str, action: str) -> bool:
-        """Check if a user has permission for an action.
-
-        Permission matrix:
-        - admin: all actions
-        - attorney: run, approve_own, view_audit, view_runs
-        - reviewer: approve, view_audit, view_runs
-        """
         user = self.get_user(user_id)
         if not user:
             return False
-
         role = user["role"]
-        if role == "admin":
-            return True
-
-        attorney_actions = {"run", "approve_own", "view_audit", "view_runs", "view_drafts"}
-        reviewer_actions = {"approve", "view_audit", "view_runs", "view_drafts"}
-
-        if role == "attorney" and action in attorney_actions:
-            return True
-        if role == "reviewer" and action in reviewer_actions:
-            return True
-
-        return False
+        allowed = ROLE_PERMISSIONS.get(role, set())
+        return action in allowed
