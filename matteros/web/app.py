@@ -54,8 +54,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         # Solo mode: no users exist
         if not has_users(store):
             if request.url.path == "/":
-                return templates.TemplateResponse("login.html", {
-                    "request": request,
+                return templates.TemplateResponse(request, "login.html", {
                     "setup_required": True,
                     "error": None,
                 })
@@ -83,8 +82,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
     @app.get("/login", response_class=HTMLResponse)
     async def login_page(request: Request) -> HTMLResponse:
         store = _store()
-        return templates.TemplateResponse("login.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "login.html", {
             "setup_required": not has_users(store),
             "error": None,
         })
@@ -98,8 +96,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
 
         user_id = handle_login(store, username, password)
         if not user_id:
-            return templates.TemplateResponse("login.html", {
-                "request": request,
+            return templates.TemplateResponse(request, "login.html", {
                 "setup_required": False,
                 "error": "Invalid username or password",
             })
@@ -145,8 +142,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         loaded = load_config(path=home_dir / "config.yml", home=home_dir)
         cfg = loaded.config
 
-        return templates.TemplateResponse("dashboard.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "dashboard.html", {
             "run_count": run_count,
             "pending_approvals": pending_approvals,
             "recent_runs": [dict(r) for r in recent_runs],
@@ -168,8 +164,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
-        return templates.TemplateResponse("runs.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "runs.html", {
             "runs": [dict(r) for r in rows],
         })
 
@@ -177,8 +172,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
     async def run_trigger_page(request: Request) -> HTMLResponse:
         svc = _run_service()
         playbooks = svc.list_playbooks()
-        return templates.TemplateResponse("run_trigger.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "run_trigger.html", {
             "playbooks": playbooks,
         })
 
@@ -199,8 +193,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
-        return templates.TemplateResponse("run_detail.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "run_detail.html", {
             "run": dict(run_row),
             "steps": [dict(s) for s in steps],
             "events": [dict(e) for e in events],
@@ -263,8 +256,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         finally:
             conn.close()
 
-        return templates.TemplateResponse("approvals.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "approvals.html", {
             "approvals": [dict(r) for r in rows],
         })
 
@@ -275,8 +267,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         store = _store()
         manager = DraftManager(store)
         drafts = manager.list_drafts(limit=50)
-        return templates.TemplateResponse("drafts.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "drafts.html", {
             "drafts": drafts,
         })
 
@@ -325,8 +316,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         store = _store()
         events = store.list_audit_events(limit=200)
         events.reverse()
-        return templates.TemplateResponse("audit.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "audit.html", {
             "events": events,
         })
 
@@ -335,8 +325,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
     @app.get("/settings", response_class=HTMLResponse, dependencies=[Depends(require_permission("manage_settings"))])
     async def settings_page(request: Request) -> HTMLResponse:
         loaded = load_config(path=home_dir / "config.yml", home=home_dir)
-        return templates.TemplateResponse("settings.html", {
-            "request": request,
+        return templates.TemplateResponse(request, "settings.html", {
             "config": loaded.config,
             "home": str(home_dir),
         })
