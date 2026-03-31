@@ -945,27 +945,18 @@ def web_command(
         raise typer.Exit(code=1)
 
     import uvicorn
-    from urllib.parse import quote
 
     home_dir = resolve_home(home)
     app_instance = create_app(home=home_dir)
     base_url = f"http://127.0.0.1:{port}"
-    token = str(getattr(app_instance.state, "web_token", ""))
-    token_query_param = str(getattr(app_instance.state, "auth_query_param", "access_token"))
-    bootstrap_url = (
-        f"{base_url}/?{token_query_param}={quote(token, safe='')}"
-        if token
-        else base_url
-    )
 
     typer.echo(f"starting MatterOS web UI on {base_url}")
-    if token:
-        typer.echo(f"web auth bootstrap URL (keep private): {bootstrap_url}")
+    typer.echo("log in at /login with your team credentials")
 
     if open_browser:
         import webbrowser
 
-        webbrowser.open(bootstrap_url)
+        webbrowser.open(f"{base_url}/login")
 
     uvicorn.run(app_instance, host="127.0.0.1", port=port, log_level="info")
 
