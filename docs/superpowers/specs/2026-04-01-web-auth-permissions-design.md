@@ -78,7 +78,9 @@ Replaces the current single-token middleware in `app.py`.
 3. `POST /logout` — delete session row → clear cookie → redirect to `/login`
 4. Failed login — re-render `login.html` with error message
 
-**Password hashing:** `hashlib.scrypt` (stdlib). Used consistently in both CLI (`matteros team add-user`, `matteros team init`) and web login verification.
+**Password hashing:** `hashlib.scrypt` (stdlib) with a random 16-byte salt. Used consistently in both CLI (`matteros team add-user`, `matteros team init`) and web login verification. The hash is stored as `salt_hex$scrypt_hex` in the `password_hash` column.
+
+**Migrating existing SHA-256 hashes:** The current CLI stores unsalted `hashlib.sha256` hashes. The migration (`v004_sessions.py`) does NOT auto-convert these — there is no way to rehash without the plaintext password. Instead, existing users with SHA-256 hashes will be unable to log in via the web. The admin must re-run `matteros team add-user` to reset their credentials with scrypt. The login verification function detects the hash format (`$` separator = scrypt, otherwise legacy SHA-256 rejected).
 
 **Solo mode:** When no users exist in the DB, the web app renders a message directing the user to run `matteros team init`. No bootstrap URL backdoor.
 
@@ -130,6 +132,18 @@ Templates receive the user's permission set to conditionally show/hide nav links
 ### No new dependencies
 
 Uses `hashlib`, `secrets`, `os` from stdlib plus existing FastAPI/Jinja2.
+
+## Security Test Cases
+
+The following paths must have test coverage before this milestone ships:
+
+1. **Unauthenticated redirect** — requests without a valid session cookie to any route (except `/login`) return a redirect to `/login`, not a 200 or data leak.
+2. **Expired session** — a session past `expires_at` is treated as unauthenticated; the row is cleaned up.
+3. **Permission denial** — each role is tested against at least one route it cannot access (e.g., `paralegal` cannot `POST /api/runs`), confirming a 403 response.
+4. **Own-vs-others draft approval** — a `solicitor` can approve their own draft but gets 403 when approving another user's draft. A `sr_solicitor` can approve both.
+5. **Solo mode (no users)** — when the `users` table is empty, all web routes return the "run `matteros team init`" message, not a crash or unprotected dashboard.
+6. **Legacy SHA-256 hash rejection** — a user whose `password_hash` is an old unsalted SHA-256 hex string cannot log in; they get a clear error.
+7. **Session cookie properties** — cookie is `httponly` and `samesite=strict`.
 
 ## Future: OAuth/OIDC
 
