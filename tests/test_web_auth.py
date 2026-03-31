@@ -1,4 +1,4 @@
-"""Tests for web authentication and draft action responses."""
+"""Tests for web authentication (session-based) and draft action responses."""
 
 from __future__ import annotations
 
@@ -11,43 +11,59 @@ from fastapi.testclient import TestClient
 
 from matteros.core.store import SQLiteStore
 from matteros.drafts.manager import DraftManager
-from matteros.web.app import AUTH_QUERY_PARAM, create_app
+from matteros.team.users import UserManager, hash_password
+from matteros.web.app import create_app
 
 
-def _make_client(home: Path) -> tuple[TestClient, str]:
+def _make_authed_client(home: Path) -> TestClient:
+    """Create app with a dev user and return a logged-in client."""
+    store = SQLiteStore(home / "matteros.db")
+    manager = UserManager(store)
+    manager.create_user(username="dev", role="dev", password_hash=hash_password("pass"))
     app = create_app(home=home)
-    token = str(app.state.web_token)
-    return TestClient(app), token
+    client = TestClient(app)
+    client.post("/login", data={"username": "dev", "password": "pass"})
+    return client
 
 
 def test_web_rejects_missing_auth(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
-    client, _ = _make_client(home)
+    # Need at least one user so it's not solo mode
+    store = SQLiteStore(home / "matteros.db")
+    UserManager(store).create_user(username="u", role="dev", password_hash=hash_password("p"))
+    app = create_app(home=home)
+    client = TestClient(app)
 
-    response = client.get("/")
-    assert response.status_code == 401
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 303
+    assert response.headers["location"] == "/login"
 
 
-def test_web_accepts_bearer_or_bootstrap_query_and_sets_cookie(tmp_path: Path) -> None:
+def test_web_login_sets_session_cookie(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
-    client, token = _make_client(home)
+    store = SQLiteStore(home / "matteros.db")
+    UserManager(store).create_user(username="u", role="dev", password_hash=hash_password("p"))
+    app = create_app(home=home)
+    client = TestClient(app)
 
-    by_header = client.get("/api/runs", headers={"Authorization": f"Bearer {token}"})
-    assert by_header.status_code == 200
+    response = client.post(
+        "/login", data={"username": "u", "password": "p"}, follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert "matteros_session" in response.cookies
 
-    by_query = client.get(f"/?{AUTH_QUERY_PARAM}={token}")
-    assert by_query.status_code == 200
-    assert "matteros_session" in by_query.cookies
-
-    by_cookie = client.get("/api/runs")
-    assert by_cookie.status_code == 200
+    # Can access dashboard with session
+    dash = client.get("/")
+    assert dash.status_code == 200
 
 
-def test_draft_approve_endpoint_returns_204_for_htmx_delete(tmp_path: Path) -> None:
+def test_draft_approve_endpoint_returns_204(tmp_path: Path) -> None:
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
+    client = _make_authed_client(home)
+
     store = SQLiteStore(home / "matteros.db")
     manager = DraftManager(store)
     draft_id = manager.create_draft(
@@ -60,8 +76,7 @@ def test_draft_approve_endpoint_returns_204_for_htmx_delete(tmp_path: Path) -> N
         },
     )
 
-    client, token = _make_client(home)
-    response = client.post(f"/drafts/{draft_id}/approve?{AUTH_QUERY_PARAM}={token}")
+    response = client.post(f"/drafts/{draft_id}/approve")
     assert response.status_code == 204
     assert response.text == ""
 
