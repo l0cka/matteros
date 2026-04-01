@@ -221,6 +221,9 @@ class GitlawConnector(Connector):
                 "duration_hint_minutes": None,
             })
 
+        # Compute duration hints before filtering
+        self._compute_duration_hints(activities)
+
         # Apply filters
         doc_filter = params.get("document")
         start_filter = params.get("start")
@@ -234,3 +237,68 @@ class GitlawConnector(Connector):
             activities = [a for a in activities if a["timestamp"] <= end_filter]
 
         return activities
+
+    # ------------------------------------------------------------------
+    # Duration hints
+    # ------------------------------------------------------------------
+
+    def _get_commit_timestamps(self, document: str) -> list[tuple[str, str, str]]:
+        result = subprocess.run(
+            ["git", "log", "--format=%H %aI %an", "--", document],
+            cwd=self.repo_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return []
+        tuples: list[tuple[str, str, str]] = []
+        for line in result.stdout.strip().splitlines():
+            if not line.strip():
+                continue
+            parts = line.split(" ", 2)
+            if len(parts) == 3:
+                tuples.append((parts[0], parts[1], parts[2]))
+        return tuples
+
+    def _compute_duration_hints(self, activities: list[dict[str, Any]]) -> None:
+        from datetime import datetime
+
+        # Group commit timestamps by document
+        docs = {a["matter_id"] for a in activities}
+        commit_data: dict[str, list[tuple[str, str, str]]] = {}
+        for doc in docs:
+            commit_data[doc] = self._get_commit_timestamps(doc)
+
+        for activity in activities:
+            doc = activity["matter_id"]
+            actor = activity["actor"]
+            commits = commit_data.get(doc, [])
+
+            # Find this activity's commit in the list
+            evidence = activity.get("evidence_refs", [])
+            if not evidence:
+                continue
+            commit_hash = evidence[0]
+
+            # Find index of this commit
+            idx = None
+            for i, (h, _ts, _author) in enumerate(commits):
+                if h == commit_hash:
+                    idx = i
+                    break
+            if idx is None:
+                continue
+
+            # Look for previous commit by same author on same document
+            for j in range(idx + 1, len(commits)):
+                _h, prev_ts, prev_author = commits[j]
+                if prev_author == actor:
+                    curr_ts = activity["timestamp"]
+                    try:
+                        curr_dt = datetime.fromisoformat(curr_ts)
+                        prev_dt = datetime.fromisoformat(prev_ts)
+                        gap_minutes = (curr_dt - prev_dt).total_seconds() / 60
+                        activity["duration_hint_minutes"] = min(gap_minutes, 60)
+                    except (ValueError, TypeError):
+                        pass
+                    break
