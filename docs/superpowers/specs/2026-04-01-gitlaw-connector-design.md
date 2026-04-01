@@ -55,7 +55,6 @@ List all documents with metadata.
 **Params:**
 - `status` (optional): filter by document status (`draft`, `review`, `approved`, `finalised`, `archived`)
 - `type` (optional): filter by document type (`contract`, `policy`, `brief`)
-- `mock_file` (optional): path to JSON fixture
 
 **Returns:** List of dicts:
 ```python
@@ -82,7 +81,6 @@ Single document with full section content.
 
 **Params:**
 - `document` (required): directory name (key)
-- `mock_file` (optional): path to JSON fixture
 
 **Returns:** Same as `documents` item, plus:
 ```python
@@ -95,7 +93,7 @@ Single document with full section content.
 }
 ```
 
-**Implementation:** Read `document.yaml`, `.gitlaw`, then read each `sections/*.md` file referenced in the sections list. Path traversal check: resolved section path must start with the document directory.
+**Implementation:** Read `document.yaml`, `.gitlaw`, then read each `sections/*.md` file referenced in the sections list. All paths are validated (see Path Safety below).
 
 ### `audit_log` (read)
 
@@ -105,7 +103,6 @@ gitlaw audit entries normalized into MatterOS activity format.
 - `start` (optional): ISO datetime, filter events after this time
 - `end` (optional): ISO datetime, filter events before this time
 - `document` (optional): filter to a specific document key
-- `mock_file` (optional): path to JSON fixture
 
 **Returns:** List of normalized activity dicts:
 ```python
@@ -144,7 +141,6 @@ Pending and completed review requests with decisions.
 
 **Params:**
 - `status` (optional): `pending` or `completed`
-- `mock_file` (optional): path to JSON fixture
 
 **Returns:** List of dicts:
 ```python
@@ -169,25 +165,77 @@ Pending and completed review requests with decisions.
 
 **Implementation:** Read git notes from `refs/notes/gitlaw-reviews` via subprocess. Parse JSON. Merge requests with their review records. Apply status filter.
 
-## Git Notes Reading
+## Path Safety
 
-Both `audit_log` and `reviews` read from git notes via subprocess:
+**All** filesystem reads are validated against the configured repo root. This applies to:
+
+1. **Document discovery** — When scanning for directories containing `document.yaml`, reject any directory that is a symlink or whose `resolve()` path does not start with the resolved repo root.
+2. **Metadata reads** — `document.yaml` and `.gitlaw` files: reject if the resolved path escapes the repo root.
+3. **Section reads** — `sections/*.md` files referenced in `document.yaml`: reject if the resolved path escapes the document directory.
+
+Implementation: a shared `_validate_path(path, root)` helper:
 
 ```python
+def _validate_path(path: Path, root: Path) -> Path:
+    """Resolve path and verify it's contained within root. Raises ConnectorError on violation."""
+    resolved = path.resolve()
+    root_resolved = root.resolve()
+    if not str(resolved).startswith(str(root_resolved) + "/") and resolved != root_resolved:
+        raise ConnectorError(f"path escapes repo root: {path}")
+    if path.is_symlink():
+        raise ConnectorError(f"symlinked paths not allowed: {path}")
+    return resolved
+```
+
+Called before every `read_text()` or `iterdir()` on repo contents.
+
+## Git Notes Reading
+
+Both `audit_log` and `reviews` read from git notes via subprocess.
+
+**Repo state validation:** Before reading notes, the connector validates the repository state:
+
+1. Run `git symbolic-ref --short HEAD` to check the current branch. If the repo is in detached HEAD state, raise `ConnectorError("gitlaw repo is in detached HEAD state — audit/review data may be stale")`.
+2. Run `git rev-parse HEAD` to get the current commit. This is the object we read notes from.
+
+This prevents silently returning empty data when the repo is on the wrong branch or in an unexpected checkout state. gitlaw always annotates commits on the active branch, so detached HEAD is never the intended state.
+
+**Reading notes:**
+
+```python
+# Step 1: validate repo state
+branch_result = subprocess.run(
+    ["git", "symbolic-ref", "--short", "HEAD"],
+    cwd=repo_dir, capture_output=True, text=True, timeout=10,
+)
+if branch_result.returncode != 0:
+    raise ConnectorError("gitlaw repo is in detached HEAD state")
+
+# Step 2: read notes from HEAD
 result = subprocess.run(
     ["git", "notes", f"--ref={notes_ref}", "show", "HEAD"],
-    cwd=repo_dir,
-    capture_output=True,
-    text=True,
-    timeout=10,
+    cwd=repo_dir, capture_output=True, text=True, timeout=10,
 )
 ```
 
-If the command fails with "no note found" (exit code 1, stderr contains "no note found"), return empty data — not an error. This handles repos with no audit history.
+**Empty vs missing:** If the notes command fails with "no note found" (exit code 1, stderr contains "no note found"), return empty data — not an error. This handles repos with no audit history yet. Any other git error is raised as `ConnectorError`.
 
-## Mock Support
+## Test Fixtures (No Runtime `mock_file`)
 
-All operations accept a `mock_file` param pointing to a JSON fixture file, following the same pattern as Slack, Toggl, and other connectors. This enables testing without a real gitlaw repo.
+Unlike other MatterOS connectors, the gitlaw connector does **not** expose a `mock_file` parameter on operations. The existing `mock_file` pattern in connectors like Slack and Toggl is an arbitrary file-read escape hatch — any caller can read any file on disk by passing a path. This breaks the trust boundary established by `MATTEROS_GITLAW_REPO_DIR`.
+
+Instead, the connector accepts an optional `fixture_dir` in its **constructor** (not in operation params). When set, it reads from a fake gitlaw repo directory structure under `fixture_dir` instead of the real repo. This is set only in tests:
+
+```python
+# Production
+GitlawConnector(repo_dir=Path("/real/repo"))
+
+# Test
+GitlawConnector(repo_dir=tmp_path / "fake_repo")
+# ...populate tmp_path with fixture files
+```
+
+Tests create a temporary directory with the expected gitlaw layout (document.yaml, .gitlaw, sections/, and optionally fake git notes output). No arbitrary path parameter is exposed at runtime.
 
 ## Configuration
 
