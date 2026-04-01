@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +10,20 @@ import yaml
 
 from matteros.connectors.base import Connector, ConnectorError
 from matteros.core.types import ConnectorManifest, PermissionMode
+
+AUDIT_NOTES_REF = "refs/notes/gitlaw-audit"
+REVIEW_NOTES_REF = "refs/notes/gitlaw-reviews"
+
+EVENT_TYPE_MAP: dict[str, str] = {
+    "document_created": "document_create",
+    "section_modified": "document_edit",
+    "review_requested": "review_request",
+    "review_decision": "review_action",
+    "status_transition": "status_change",
+    "signature_added": "signature",
+    "document_exported": "export",
+    "document_accessed": "access",
+}
 
 
 def _validate_path(path: Path, root: Path) -> None:
@@ -57,7 +73,9 @@ class GitlawConnector(Connector):
             return self._read_documents(params)
         if operation == "document_detail":
             return self._read_document_detail(params)
-        if operation in ("audit_log", "reviews"):
+        if operation == "audit_log":
+            return self._read_audit_log(params)
+        if operation == "reviews":
             raise ConnectorError(f"gitlaw operation not yet implemented: {operation}")
         raise ConnectorError(f"unsupported gitlaw read operation: {operation}")
 
@@ -152,3 +170,67 @@ class GitlawConnector(Connector):
 
         doc["section_contents"] = section_contents
         return doc
+
+    # ------------------------------------------------------------------
+    # audit_log operation
+    # ------------------------------------------------------------------
+
+    def _validate_repo_state(self) -> None:
+        result = subprocess.run(
+            ["git", "symbolic-ref", "--short", "HEAD"],
+            cwd=self.repo_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            raise ConnectorError(
+                "gitlaw repo is in detached HEAD state — audit/review data may be stale"
+            )
+
+    def _read_git_notes(self, notes_ref: str) -> str | None:
+        self._validate_repo_state()
+        result = subprocess.run(
+            ["git", "notes", f"--ref={notes_ref}", "show", "HEAD"],
+            cwd=self.repo_dir,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return result.stdout
+        if "no note found" in result.stderr:
+            return None
+        raise ConnectorError(f"failed to read git notes: {result.stderr}")
+
+    def _read_audit_log(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        raw = self._read_git_notes(AUDIT_NOTES_REF)
+        if raw is None:
+            return []
+
+        entries = json.loads(raw)
+        activities: list[dict[str, Any]] = []
+        for entry in entries:
+            event = entry.get("event", "")
+            activities.append({
+                "timestamp": entry["timestamp"],
+                "actor": entry["actor"],
+                "activity_type": EVENT_TYPE_MAP.get(event, event),
+                "matter_id": entry["document"],
+                "description": event,
+                "metadata": entry.get("details", {}),
+                "evidence_refs": [entry["commit"]] if entry.get("commit") else [],
+                "duration_hint_minutes": None,
+            })
+
+        # Apply filters
+        doc_filter = params.get("document")
+        start_filter = params.get("start")
+        end_filter = params.get("end")
+
+        if doc_filter:
+            activities = [a for a in activities if a["matter_id"] == doc_filter]
+        if start_filter:
+            activities = [a for a in activities if a["timestamp"] >= start_filter]
+        if end_filter:
+            activities = [a for a in activities if a["timestamp"] <= end_filter]
+
+        return activities
