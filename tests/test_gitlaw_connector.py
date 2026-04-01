@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -150,3 +152,114 @@ def test_read_document_detail_rejects_traversal_section(repo: Path) -> None:
     connector = make_connector(repo)
     with pytest.raises(ConnectorError, match="escapes repository root"):
         connector.read("document_detail", {"document": "evil-doc"}, {})
+
+
+# ---------------------------------------------------------------------------
+# Helpers for git-based tests (Tasks 4 & 5)
+# ---------------------------------------------------------------------------
+
+
+def _init_git_repo(repo_dir):
+    subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "Test"], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_dir, capture_output=True, check=True)
+
+
+def _write_audit_notes(repo_dir, entries):
+    data = json.dumps(entries)
+    subprocess.run(
+        ["git", "notes", "--ref=refs/notes/gitlaw-audit", "add", "-f", "-m", data, "HEAD"],
+        cwd=repo_dir, capture_output=True, check=True,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Task 4: audit_log operation tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def git_repo(tmp_path: Path) -> Path:
+    """Create a fixture-based repo that is also a real git repo."""
+    repo_dir = tmp_path / "repo"
+    shutil.copytree(FIXTURES_DIR, repo_dir)
+    _init_git_repo(repo_dir)
+    return repo_dir
+
+
+def test_read_audit_log_returns_normalized_entries(git_repo: Path) -> None:
+    entries = [
+        {
+            "timestamp": "2026-03-01T10:00:00+00:00",
+            "actor": "alice",
+            "event": "document_created",
+            "document": "sample-contract",
+            "commit": "abc123",
+            "details": {"note": "initial draft"},
+        }
+    ]
+    _write_audit_notes(git_repo, entries)
+
+    connector = make_connector(git_repo)
+    result = connector.read("audit_log", {}, {})
+
+    assert len(result) == 1
+    activity = result[0]
+    assert activity["activity_type"] == "document_create"
+    assert activity["actor"] == "alice"
+    assert activity["matter_id"] == "sample-contract"
+    assert activity["description"] == "document_created"
+    assert activity["evidence_refs"] == ["abc123"]
+    assert activity["metadata"] == {"note": "initial draft"}
+
+
+def test_read_audit_log_filters_by_document(git_repo: Path) -> None:
+    entries = [
+        {
+            "timestamp": "2026-03-01T10:00:00+00:00",
+            "actor": "alice",
+            "event": "document_created",
+            "document": "sample-contract",
+            "commit": "abc123",
+            "details": {},
+        },
+        {
+            "timestamp": "2026-03-01T11:00:00+00:00",
+            "actor": "bob",
+            "event": "section_modified",
+            "document": "draft-policy",
+            "commit": "def456",
+            "details": {},
+        },
+    ]
+    _write_audit_notes(git_repo, entries)
+
+    connector = make_connector(git_repo)
+    result = connector.read("audit_log", {"document": "sample-contract"}, {})
+
+    assert len(result) == 1
+    assert result[0]["matter_id"] == "sample-contract"
+
+
+def test_read_audit_log_empty_when_no_notes(git_repo: Path) -> None:
+    connector = make_connector(git_repo)
+    result = connector.read("audit_log", {}, {})
+    assert result == []
+
+
+def test_read_audit_log_rejects_detached_head(git_repo: Path) -> None:
+    # Get current commit SHA and detach HEAD
+    sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=git_repo, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    subprocess.run(
+        ["git", "checkout", sha],
+        cwd=git_repo, capture_output=True, check=True,
+    )
+
+    connector = make_connector(git_repo)
+    with pytest.raises(ConnectorError, match="detached HEAD"):
+        connector.read("audit_log", {}, {})
