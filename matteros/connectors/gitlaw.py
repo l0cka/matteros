@@ -76,7 +76,7 @@ class GitlawConnector(Connector):
         if operation == "audit_log":
             return self._read_audit_log(params)
         if operation == "reviews":
-            raise ConnectorError(f"gitlaw operation not yet implemented: {operation}")
+            return self._read_reviews(params)
         raise ConnectorError(f"unsupported gitlaw read operation: {operation}")
 
     def write(self, operation: str, params: dict[str, Any], payload: Any, context: dict[str, Any]) -> Any:
@@ -302,3 +302,35 @@ class GitlawConnector(Connector):
                     except (ValueError, TypeError):
                         pass
                     break
+
+    # ------------------------------------------------------------------
+    # reviews operation
+    # ------------------------------------------------------------------
+
+    def _read_reviews(self, params: dict[str, Any]) -> list[dict[str, Any]]:
+        raw = self._read_git_notes(REVIEW_NOTES_REF)
+        if raw is None:
+            return []
+
+        data = json.loads(raw)
+        requests_map: dict[str, Any] = dict(data.get("requests", []))
+        reviews_map: dict[str, list[dict[str, Any]]] = dict(data.get("reviews", []))
+
+        status_filter = params.get("status")
+
+        results: list[dict[str, Any]] = []
+        for doc_key, request in requests_map.items():
+            if status_filter and request.get("status") != status_filter:
+                continue
+            decisions = reviews_map.get(doc_key, [])
+            results.append({
+                "document": request["document"],
+                "reviewers": request["reviewers"],
+                "requester": request["requester"],
+                "commit": request["commit"],
+                "timestamp": request["timestamp"],
+                "status": request["status"],
+                "decisions": decisions,
+            })
+
+        return results
