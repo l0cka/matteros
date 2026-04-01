@@ -176,6 +176,14 @@ def _write_audit_notes(repo_dir, entries):
     )
 
 
+def _write_review_notes(repo_dir, data):
+    raw = json.dumps(data)
+    subprocess.run(
+        ["git", "notes", "--ref=refs/notes/gitlaw-reviews", "add", "-f", "-m", raw, "HEAD"],
+        cwd=repo_dir, capture_output=True, check=True,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Task 4: audit_log operation tests
 # ---------------------------------------------------------------------------
@@ -344,3 +352,127 @@ def test_audit_log_includes_duration_hints(tmp_path: Path) -> None:
     assert result[0]["duration_hint_minutes"] is None
     # Second activity: 30 min gap from first commit by same author
     assert result[1]["duration_hint_minutes"] == 30
+
+
+# ---------------------------------------------------------------------------
+# Task 6: reviews operation tests
+# ---------------------------------------------------------------------------
+
+
+def test_read_reviews_returns_merged_data(git_repo: Path) -> None:
+    review_data = {
+        "requests": [
+            [
+                "sample-contract",
+                {
+                    "document": "sample-contract",
+                    "reviewers": ["alice", "bob"],
+                    "requester": "carol",
+                    "commit": "abc123",
+                    "timestamp": "2026-03-01T10:00:00+00:00",
+                    "status": "pending",
+                },
+            ]
+        ],
+        "reviews": [
+            [
+                "sample-contract",
+                [
+                    {
+                        "reviewer": "alice",
+                        "decision": "approved",
+                        "timestamp": "2026-03-02T09:00:00+00:00",
+                        "comment": "LGTM",
+                    }
+                ],
+            ]
+        ],
+    }
+    _write_review_notes(git_repo, review_data)
+
+    connector = make_connector(git_repo)
+    result = connector.read("reviews", {}, {})
+
+    assert len(result) == 1
+    review = result[0]
+    assert review["document"] == "sample-contract"
+    assert review["reviewers"] == ["alice", "bob"]
+    assert review["requester"] == "carol"
+    assert review["commit"] == "abc123"
+    assert review["status"] == "pending"
+    assert len(review["decisions"]) == 1
+    assert review["decisions"][0]["decision"] == "approved"
+    assert review["decisions"][0]["reviewer"] == "alice"
+
+
+def test_read_reviews_filter_by_status(git_repo: Path) -> None:
+    review_data = {
+        "requests": [
+            [
+                "sample-contract",
+                {
+                    "document": "sample-contract",
+                    "reviewers": ["alice"],
+                    "requester": "carol",
+                    "commit": "abc123",
+                    "timestamp": "2026-03-01T10:00:00+00:00",
+                    "status": "pending",
+                },
+            ],
+            [
+                "draft-policy",
+                {
+                    "document": "draft-policy",
+                    "reviewers": ["bob"],
+                    "requester": "dave",
+                    "commit": "def456",
+                    "timestamp": "2026-03-01T11:00:00+00:00",
+                    "status": "completed",
+                },
+            ],
+        ],
+        "reviews": [],
+    }
+    _write_review_notes(git_repo, review_data)
+
+    connector = make_connector(git_repo)
+    result = connector.read("reviews", {"status": "pending"}, {})
+
+    assert len(result) == 1
+    assert result[0]["document"] == "sample-contract"
+    assert result[0]["status"] == "pending"
+
+
+def test_read_reviews_empty_when_no_notes(git_repo: Path) -> None:
+    connector = make_connector(git_repo)
+    result = connector.read("reviews", {}, {})
+    assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Task 7: connector registration tests
+# ---------------------------------------------------------------------------
+
+from matteros.core.types import PermissionMode
+
+
+def test_connector_registered_when_env_set(monkeypatch, git_repo: Path) -> None:
+    monkeypatch.setenv("MATTEROS_GITLAW_REPO_DIR", str(git_repo))
+
+    import importlib
+    import matteros.connectors
+    registry = importlib.import_module("matteros.connectors").create_default_registry()
+
+    assert "gitlaw" in registry.manifests()
+    manifest = registry.manifests()["gitlaw"]
+    assert manifest.operations["reviews"] == PermissionMode.READ
+
+
+def test_connector_not_registered_without_env(monkeypatch, git_repo: Path) -> None:
+    monkeypatch.delenv("MATTEROS_GITLAW_REPO_DIR", raising=False)
+
+    import importlib
+    import matteros.connectors
+    registry = importlib.import_module("matteros.connectors").create_default_registry()
+
+    assert "gitlaw" not in registry.manifests()
