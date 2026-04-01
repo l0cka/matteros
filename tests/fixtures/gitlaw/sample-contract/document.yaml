@@ -1,0 +1,14 @@
+title: Service Agreement
+type: contract
+status: review
+parties:
+  - name: Acme Corp
+    role: client
+  - name: Legal Co
+    role: provider
+created: "2026-03-15"
+sections:
+  - id: recitals
+    file: sections/recitals.md
+  - id: definitions
+    file: sections/definitions.md

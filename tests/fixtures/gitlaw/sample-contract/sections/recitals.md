@@ -1,0 +1,3 @@
+# Recitals
+
+WHEREAS Acme Corp requires legal services...
