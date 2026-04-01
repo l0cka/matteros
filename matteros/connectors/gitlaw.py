@@ -55,7 +55,9 @@ class GitlawConnector(Connector):
     def read(self, operation: str, params: dict[str, Any], context: dict[str, Any]) -> Any:
         if operation == "documents":
             return self._read_documents(params)
-        if operation in ("document_detail", "audit_log", "reviews"):
+        if operation == "document_detail":
+            return self._read_document_detail(params)
+        if operation in ("audit_log", "reviews"):
             raise ConnectorError(f"gitlaw operation not yet implemented: {operation}")
         raise ConnectorError(f"unsupported gitlaw read operation: {operation}")
 
@@ -115,3 +117,38 @@ class GitlawConnector(Connector):
                 continue
             results.append(doc)
         return results
+
+    # ------------------------------------------------------------------
+    # document_detail operation
+    # ------------------------------------------------------------------
+
+    def _read_document_detail(self, params: dict[str, Any]) -> dict[str, Any]:
+        document_key = params.get("document", "")
+        if not document_key:
+            raise ConnectorError("document parameter is required")
+
+        doc_dir = self.repo_dir / document_key
+        if doc_dir.is_symlink() or not doc_dir.is_dir():
+            raise ConnectorError(f"document not found: {document_key}")
+
+        _validate_path(doc_dir, self.repo_dir)
+
+        doc_yaml = doc_dir / "document.yaml"
+        if not doc_yaml.exists():
+            raise ConnectorError(f"document not found: {document_key}")
+
+        doc = self._parse_document(doc_dir)
+
+        section_contents: dict[str, str] = {}
+        for section in doc["sections"]:
+            sec_id = section.get("id", "")
+            sec_file = section.get("file", "")
+            if not sec_file:
+                continue
+            sec_path = doc_dir / sec_file
+            _validate_path(sec_path, self.repo_dir)
+            if sec_path.exists():
+                section_contents[sec_id] = sec_path.read_text(encoding="utf-8")
+
+        doc["section_contents"] = section_contents
+        return doc
