@@ -55,6 +55,10 @@ def create_default_registry(
         from matteros.connectors.toggl import TogglConnector
         registry.register(TogglConnector())
 
+    if os.environ.get("MATTEROS_GITLAW_REPO_DIR"):
+        from matteros.connectors.gitlaw import GitlawConnector
+        registry.register(GitlawConnector(repo_dir=Path(os.environ["MATTEROS_GITLAW_REPO_DIR"])))
+
     # iCal is always available (local file parsing, no auth needed).
     registry.register(ICalConnector())
 
