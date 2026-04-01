@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -263,3 +264,83 @@ def test_read_audit_log_rejects_detached_head(git_repo: Path) -> None:
     connector = make_connector(git_repo)
     with pytest.raises(ConnectorError, match="detached HEAD"):
         connector.read("audit_log", {}, {})
+
+
+# ---------------------------------------------------------------------------
+# Task 5: Duration hints tests
+# ---------------------------------------------------------------------------
+
+
+def test_audit_log_includes_duration_hints(tmp_path: Path) -> None:
+    repo_dir = tmp_path / "repo"
+    repo_dir.mkdir()
+
+    # Create a sample document directory with document.yaml
+    doc_dir = repo_dir / "sample-contract"
+    doc_dir.mkdir()
+    (doc_dir / "document.yaml").write_text(
+        "title: Test\ntype: contract\nstatus: active\nparties: []\ncreated: '2026-01-01'\nsections: []\n"
+    )
+    (doc_dir / "content.md").write_text("Version 1")
+
+    # Init repo and make first commit at t=0
+    t1 = "2026-03-01T10:00:00+00:00"
+    subprocess.run(["git", "init"], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.email", "test@test.com"], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(["git", "config", "user.name", "alice"], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "first commit", f"--date={t1}"],
+        cwd=repo_dir, capture_output=True, check=True,
+        env={**os.environ, "GIT_COMMITTER_DATE": t1},
+    )
+
+    commit1 = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_dir, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    # Second commit 30 min later
+    t2 = "2026-03-01T10:30:00+00:00"
+    (doc_dir / "content.md").write_text("Version 2")
+    subprocess.run(["git", "add", "."], cwd=repo_dir, capture_output=True, check=True)
+    subprocess.run(
+        ["git", "commit", "-m", "second commit", f"--date={t2}"],
+        cwd=repo_dir, capture_output=True, check=True,
+        env={**os.environ, "GIT_COMMITTER_DATE": t2},
+    )
+
+    commit2 = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_dir, capture_output=True, text=True, check=True,
+    ).stdout.strip()
+
+    # Write audit notes referencing both commits
+    entries = [
+        {
+            "timestamp": t1,
+            "actor": "alice",
+            "event": "document_created",
+            "document": "sample-contract",
+            "commit": commit1,
+            "details": {},
+        },
+        {
+            "timestamp": t2,
+            "actor": "alice",
+            "event": "section_modified",
+            "document": "sample-contract",
+            "commit": commit2,
+            "details": {},
+        },
+    ]
+    _write_audit_notes(repo_dir, entries)
+
+    connector = make_connector(repo_dir)
+    result = connector.read("audit_log", {}, {})
+
+    assert len(result) == 2
+    # First activity has no previous commit by same author, so no duration hint
+    assert result[0]["duration_hint_minutes"] is None
+    # Second activity: 30 min gap from first commit by same author
+    assert result[1]["duration_hint_minutes"] == 30
