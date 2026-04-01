@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 
 from matteros.connectors.base import ConnectorError
 from matteros.connectors.gitlaw import GitlawConnector, _validate_path
@@ -102,3 +103,50 @@ def test_read_documents_rejects_symlinked_dir(repo: Path, tmp_path: Path) -> Non
     keys = {d["key"] for d in docs}
     assert "symlinked-doc" not in keys
     assert len(docs) == 2
+
+
+# ---------------------------------------------------------------------------
+# Task 3: document_detail operation tests
+# ---------------------------------------------------------------------------
+
+
+def test_read_document_detail(repo: Path) -> None:
+    connector = make_connector(repo)
+    detail = connector.read("document_detail", {"document": "sample-contract"}, {})
+    assert detail["title"] == "Service Agreement"
+    assert "recitals" in detail["section_contents"]
+    assert "definitions" in detail["section_contents"]
+    assert "WHEREAS" in detail["section_contents"]["recitals"]
+    assert "Agreement" in detail["section_contents"]["definitions"]
+
+
+def test_read_document_detail_unknown_doc(repo: Path) -> None:
+    connector = make_connector(repo)
+    with pytest.raises(ConnectorError, match="document not found: nonexistent"):
+        connector.read("document_detail", {"document": "nonexistent"}, {})
+
+
+def test_read_document_detail_rejects_traversal_section(repo: Path) -> None:
+    # Create a document that references a section file with path traversal
+    evil_doc_dir = repo / "evil-doc"
+    evil_doc_dir.mkdir()
+    (evil_doc_dir / "sections").mkdir()
+
+    evil_meta = {
+        "title": "Evil Doc",
+        "type": "contract",
+        "status": "draft",
+        "parties": [],
+        "created": "2026-01-01",
+        "sections": [
+            {"id": "passwd", "file": "../../etc/passwd"},
+        ],
+    }
+    (evil_doc_dir / "document.yaml").write_text(yaml.dump(evil_meta))
+    (evil_doc_dir / ".gitlaw").write_text(
+        "signatures: []\naudit_log_ref: refs/notes/gitlaw-audit\nworkflow_state:\n  current_reviewers: []\n  approvals: []\n"
+    )
+
+    connector = make_connector(repo)
+    with pytest.raises(ConnectorError, match="escapes repository root"):
+        connector.read("document_detail", {"document": "evil-doc"}, {})
