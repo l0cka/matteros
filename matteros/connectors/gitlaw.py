@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,17 @@ EVENT_TYPE_MAP: dict[str, str] = {
     "document_exported": "export",
     "document_accessed": "access",
 }
+
+
+def _parse_iso(value: str) -> datetime | None:
+    """Parse an ISO datetime string into a timezone-aware datetime."""
+    try:
+        dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, AttributeError):
+        return None
 
 
 def _validate_path(path: Path, root: Path) -> None:
@@ -164,7 +176,7 @@ class GitlawConnector(Connector):
             if not sec_file:
                 continue
             sec_path = doc_dir / sec_file
-            _validate_path(sec_path, self.repo_dir)
+            _validate_path(sec_path, doc_dir)
             if sec_path.exists():
                 section_contents[sec_id] = sec_path.read_text(encoding="utf-8")
 
@@ -231,10 +243,21 @@ class GitlawConnector(Connector):
 
         if doc_filter:
             activities = [a for a in activities if a["matter_id"] == doc_filter]
-        if start_filter:
-            activities = [a for a in activities if a["timestamp"] >= start_filter]
-        if end_filter:
-            activities = [a for a in activities if a["timestamp"] <= end_filter]
+        if start_filter or end_filter:
+            start_dt = _parse_iso(start_filter) if start_filter else None
+            end_dt = _parse_iso(end_filter) if end_filter else None
+            filtered = []
+            for a in activities:
+                a_dt = _parse_iso(a["timestamp"])
+                if a_dt is None:
+                    filtered.append(a)
+                    continue
+                if start_dt and a_dt < start_dt:
+                    continue
+                if end_dt and a_dt > end_dt:
+                    continue
+                filtered.append(a)
+            activities = filtered
 
         return activities
 
