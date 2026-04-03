@@ -1,0 +1,8 @@
+title: Data Retention Policy
+type: policy
+status: draft
+parties: []
+created: "2026-03-20"
+sections:
+  - id: scope
+    file: sections/scope.md

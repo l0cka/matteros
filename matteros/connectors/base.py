@@ -103,6 +103,17 @@ def default_manifests() -> dict[str, ConnectorManifest]:
             default_mode=PermissionMode.READ,
             operations={"events": PermissionMode.READ},
         ),
+        "gitlaw": ConnectorManifest(
+            connector_id="gitlaw",
+            description="Read documents, reviews, and audit events from a gitlaw repository",
+            default_mode=PermissionMode.READ,
+            operations={
+                "documents": PermissionMode.READ,
+                "document_detail": PermissionMode.READ,
+                "audit_log": PermissionMode.READ,
+                "reviews": PermissionMode.READ,
+            },
+        ),
     }
 
 
