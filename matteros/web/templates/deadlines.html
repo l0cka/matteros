@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Deadlines{% endblock %}
+{% block content %}
+<h2>Deadlines</h2>
+<div class="stats">
+    <div class="stat">
+        <div class="value">{{ overdue | length }}</div>
+        <div class="label">Overdue</div>
+    </div>
+    <div class="stat">
+        <div class="value">{{ this_week | length }}</div>
+        <div class="label">This Week</div>
+    </div>
+    <div class="stat">
+        <div class="value">{{ this_month | length }}</div>
+        <div class="label">This Month</div>
+    </div>
+</div>
+
+{% if overdue %}
+<h2 style="color:var(--red)">Overdue</h2>
+<table>
+    <thead><tr><th>Matter</th><th>Deadline</th><th>Due</th><th>Type</th></tr></thead>
+    <tbody>
+    {% for d in overdue %}
+    <tr>
+        <td><a href="/matters/{{ d.matter_id }}" style="color:var(--accent)">{{ d.matter_title }}</a></td>
+        <td>{{ d.label }}</td>
+        <td><span class="badge badge-overdue">{{ d.due_date[:10] }}</span></td>
+        <td>{{ d.type }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{% if upcoming %}
+<h2>Upcoming</h2>
+<table>
+    <thead><tr><th>Matter</th><th>Deadline</th><th>Due</th><th>Type</th></tr></thead>
+    <tbody>
+    {% for d in upcoming %}
+    <tr>
+        <td><a href="/matters/{{ d.matter_id }}" style="color:var(--accent)">{{ d.matter_title }}</a></td>
+        <td>{{ d.label }}</td>
+        <td>{{ d.due_date[:10] }}</td>
+        <td>{{ d.type }}</td>
+    </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endif %}
+
+{% if not overdue and not upcoming %}
+<div class="card" style="text-align:center; color:var(--muted); padding:2rem;">
+    No deadlines found.
+</div>
+{% endif %}
+{% endblock %}

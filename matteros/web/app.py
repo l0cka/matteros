@@ -6,21 +6,18 @@ Session-based authentication with per-user permissions.
 
 from __future__ import annotations
 
-import asyncio
-import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.responses import RedirectResponse
 
-from matteros.core.config import load_config
-from matteros.core.events import EventBus
 from matteros.core.factory import resolve_home
 from matteros.core.store import SQLiteStore
-from matteros.drafts.manager import DraftManager
+from matteros.matters.store import MatterStore
 from matteros.web.auth import (
     SESSION_COOKIE_NAME,
     create_session,
@@ -31,7 +28,6 @@ from matteros.web.auth import (
     require_permission,
     resolve_session_user,
 )
-from matteros.web.run_service import RunService
 
 
 def create_app(*, home: Path | None = None) -> FastAPI:
@@ -121,193 +117,197 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         response.delete_cookie(SESSION_COOKIE_NAME)
         return response
 
-    # ---------- Dashboard ----------
+    # ---------- My Queue (dashboard) ----------
 
     @app.get("/", response_class=HTMLResponse)
-    async def dashboard(request: Request) -> HTMLResponse:
+    async def my_queue(request: Request) -> HTMLResponse:
         store = _store()
-        conn = store._connect()
-        try:
-            run_count = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-            recent_runs = conn.execute(
-                "SELECT id, playbook_name, status, started_at, dry_run "
-                "FROM runs ORDER BY started_at DESC LIMIT 10"
-            ).fetchall()
-            pending_approvals = conn.execute(
-                "SELECT COUNT(*) FROM approvals WHERE decision = 'pending'"
-            ).fetchone()[0]
-        finally:
-            conn.close()
-
-        loaded = load_config(path=home_dir / "config.yml", home=home_dir)
-        cfg = loaded.config
-
-        return templates.TemplateResponse(request, "dashboard.html", {
-            "run_count": run_count,
-            "pending_approvals": pending_approvals,
-            "recent_runs": [dict(r) for r in recent_runs],
-            "config": cfg,
-            "home": str(home_dir),
-        })
-
-    # ---------- Runs ----------
-
-    @app.get("/runs", response_class=HTMLResponse, dependencies=[Depends(require_permission("view_runs"))])
-    async def runs_page(request: Request) -> HTMLResponse:
-        store = _store()
-        conn = store._connect()
-        try:
-            rows = conn.execute(
-                "SELECT id, playbook_name, status, started_at, ended_at, dry_run "
-                "FROM runs ORDER BY started_at DESC LIMIT 50"
-            ).fetchall()
-        finally:
-            conn.close()
-
-        return templates.TemplateResponse(request, "runs.html", {
-            "runs": [dict(r) for r in rows],
-        })
-
-    @app.get("/runs/new", response_class=HTMLResponse, dependencies=[Depends(require_permission("run_playbooks"))])
-    async def run_trigger_page(request: Request) -> HTMLResponse:
-        svc = _run_service()
-        playbooks = svc.list_playbooks()
-        return templates.TemplateResponse(request, "run_trigger.html", {
-            "playbooks": playbooks,
-        })
-
-    @app.get("/runs/{run_id}", response_class=HTMLResponse, dependencies=[Depends(require_permission("view_runs"))])
-    async def run_detail(request: Request, run_id: str) -> HTMLResponse:
-        store = _store()
-        conn = store._connect()
-        try:
-            run_row = conn.execute("SELECT * FROM runs WHERE id = ?", (run_id,)).fetchone()
-            if not run_row:
-                raise HTTPException(status_code=404, detail="Run not found")
-            steps = conn.execute(
-                "SELECT * FROM steps WHERE run_id = ? ORDER BY id", (run_id,)
-            ).fetchall()
-            events = conn.execute(
-                "SELECT * FROM audit_events WHERE run_id = ? ORDER BY seq", (run_id,)
-            ).fetchall()
-        finally:
-            conn.close()
-
-        return templates.TemplateResponse(request, "run_detail.html", {
-            "run": dict(run_row),
-            "steps": [dict(s) for s in steps],
-            "events": [dict(e) for e in events],
-        })
-
-    @app.get("/runs/{run_id}/live", dependencies=[Depends(require_permission("view_runs"))])
-    async def run_live_stream(run_id: str, since: int = Query(0, ge=0)) -> StreamingResponse:
-        store = _store()
-
-        async def generate():
-            last_seq = since
-            while True:
-                with store.connection() as conn:
-                    rows = conn.execute(
-                        """
-                        SELECT seq, run_id, event_type, step_id, data_json
-                        FROM audit_events
-                        WHERE run_id = ? AND seq > ?
-                        ORDER BY seq ASC
-                        LIMIT 100
-                        """,
-                        (run_id, last_seq),
-                    ).fetchall()
-
-                if rows:
-                    for row in rows:
-                        last_seq = int(row["seq"])
-                        payload = {
-                            "seq": last_seq,
-                            "type": row["event_type"],
-                            "run_id": row["run_id"],
-                            "step_id": row["step_id"],
-                            "data": json.loads(row["data_json"]) if row["data_json"] else {},
-                        }
-                        yield f"id: {last_seq}\n"
-                        yield f"data: {json.dumps(payload)}\n\n"
-
-                        # Stop streaming when run completes or fails
-                        if row["event_type"] in ("run.completed", "run.failed"):
-                            return
-                else:
-                    yield ": keepalive\n\n"
-
-                await asyncio.sleep(1.0)
-
-        return StreamingResponse(generate(), media_type="text/event-stream")
-
-    # ---------- Approvals ----------
-
-    @app.get("/approvals", response_class=HTMLResponse, dependencies=[Depends(require_permission("view_runs"))])
-    async def approvals_page(request: Request) -> HTMLResponse:
-        store = _store()
-        conn = store._connect()
-        try:
-            rows = conn.execute(
-                "SELECT a.*, r.playbook_name FROM approvals a "
-                "JOIN runs r ON a.run_id = r.id "
-                "ORDER BY a.created_at DESC LIMIT 50"
-            ).fetchall()
-        finally:
-            conn.close()
-
-        return templates.TemplateResponse(request, "approvals.html", {
-            "approvals": [dict(r) for r in rows],
-        })
-
-    # ---------- Drafts ----------
-
-    @app.get("/drafts", response_class=HTMLResponse, dependencies=[Depends(require_permission("view_drafts"))])
-    async def drafts_page(request: Request) -> HTMLResponse:
-        store = _store()
-        manager = DraftManager(store)
-        drafts = manager.list_drafts(limit=50)
-        return templates.TemplateResponse(request, "drafts.html", {
-            "drafts": drafts,
-        })
-
-    @app.post("/drafts/{draft_id}/approve")
-    async def approve_draft(request: Request, draft_id: str) -> Response:
-        store = _store()
-        manager = DraftManager(store)
-        draft = manager.get_draft(draft_id)
-        if not draft:
-            raise HTTPException(status_code=404, detail="Draft not found")
+        ms = MatterStore(store)
         user = request.state.user
-        permissions = request.state.permissions
-        draft_owner = draft.get("user_id", "solo")
-        if draft_owner == user["id"]:
-            if "approve_own" not in permissions:
-                raise HTTPException(status_code=403, detail="Permission denied")
-        else:
-            if "approve_others" not in permissions:
-                raise HTTPException(status_code=403, detail="Permission denied")
-        manager.approve_draft(draft_id)
-        return Response(status_code=204)
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
 
-    @app.post("/drafts/{draft_id}/reject")
-    async def reject_draft(request: Request, draft_id: str) -> Response:
+        # Get matters assigned to this user, excluding resolved
+        all_assigned = ms.list_matters(assignee_id=user["id"])
+        matters = [m for m in all_assigned if m.get("status") != "resolved"]
+
+        # Mark overdue
+        for m in matters:
+            if m.get("due_date") and m["due_date"][:10] < today:
+                m["is_overdue"] = True
+            else:
+                m["is_overdue"] = False
+
+        overdue_count = sum(1 for m in matters if m["is_overdue"])
+
+        # Sort: overdue first, then by due_date (nulls last), then by priority
+        priority_order = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
+
+        def sort_key(m: dict) -> tuple:
+            return (
+                0 if m["is_overdue"] else 1,
+                m["due_date"][:10] if m.get("due_date") else "9999-99-99",
+                priority_order.get(m.get("priority", "medium"), 2),
+            )
+
+        matters.sort(key=sort_key)
+
+        # Upcoming deadlines (next 7 days)
+        next_week = (datetime.now(UTC) + timedelta(days=7)).strftime("%Y-%m-%d")
+        upcoming_deadlines = ms.list_upcoming_deadlines(before=next_week)
+
+        return templates.TemplateResponse(request, "my_queue.html", {
+            "matters": matters,
+            "overdue_count": overdue_count,
+            "upcoming_deadlines": upcoming_deadlines,
+        })
+
+    # ---------- Deadlines ----------
+
+    @app.get("/deadlines", response_class=HTMLResponse)
+    async def deadlines_page(request: Request) -> HTMLResponse:
         store = _store()
-        manager = DraftManager(store)
-        draft = manager.get_draft(draft_id)
-        if not draft:
-            raise HTTPException(status_code=404, detail="Draft not found")
+        ms = MatterStore(store)
+        now = datetime.now(UTC)
+        today = now.strftime("%Y-%m-%dT%H:%M:%S")
+        week_end = (now + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
+        month_end = (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
+
+        all_deadlines = ms.list_upcoming_deadlines(before="2099-12-31T23:59:59")
+
+        overdue = []
+        this_week = []
+        this_month = []
+        upcoming = []
+
+        for d in all_deadlines:
+            due = d["due_date"][:19]  # normalize to YYYY-MM-DDTHH:MM:SS
+            if due < today:
+                overdue.append(d)
+            else:
+                upcoming.append(d)
+                if due <= week_end:
+                    this_week.append(d)
+                elif due <= month_end:
+                    this_month.append(d)
+
+        return templates.TemplateResponse(request, "deadlines.html", {
+            "overdue": overdue,
+            "this_week": this_week,
+            "this_month": this_month,
+            "upcoming": upcoming,
+        })
+
+    # ---------- All Matters ----------
+
+    @app.get("/matters", response_class=HTMLResponse)
+    async def all_matters(
+        request: Request,
+        status: str | None = Query(None),
+        type: str | None = Query(None),
+    ) -> HTMLResponse:
+        store = _store()
+        ms = MatterStore(store)
+        filters: dict[str, Any] = {}
+        if status:
+            filters["status"] = status
+        if type:
+            filters["type"] = type
+        matters = ms.list_matters(**filters)
+
+        return templates.TemplateResponse(request, "all_matters.html", {
+            "matters": matters,
+            "filter_status": status or "",
+            "filter_type": type or "",
+        })
+
+    # ---------- Create Matter ----------
+
+    @app.get("/matters/new", response_class=HTMLResponse)
+    async def new_matter_form(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "matter_form.html", {})
+
+    @app.post("/matters/new")
+    async def create_matter_submit(request: Request) -> Response:
+        store = _store()
+        ms = MatterStore(store)
         user = request.state.user
-        permissions = request.state.permissions
-        draft_owner = draft.get("user_id", "solo")
-        if draft_owner == user["id"]:
-            if "approve_own" not in permissions:
-                raise HTTPException(status_code=403, detail="Permission denied")
-        else:
-            if "approve_others" not in permissions:
-                raise HTTPException(status_code=403, detail="Permission denied")
-        manager.reject_draft(draft_id)
-        return Response(status_code=204)
+        form = await request.form()
+
+        title = str(form.get("title", ""))
+        type_ = str(form.get("type", "request"))
+        priority = str(form.get("priority", "medium"))
+        due_date = str(form.get("due_date", "")) or None
+        privileged = bool(form.get("privileged"))
+
+        matter_id = ms.create_matter(
+            title=title,
+            type=type_,
+            priority=priority,
+            due_date=due_date,
+            privileged=privileged,
+            assignee_id=user["id"],
+        )
+        return RedirectResponse(f"/matters/{matter_id}", status_code=303)
+
+    # ---------- Matter Detail ----------
+
+    @app.get("/matters/{matter_id}", response_class=HTMLResponse)
+    async def matter_detail(request: Request, matter_id: str) -> HTMLResponse:
+        store = _store()
+        ms = MatterStore(store)
+        matter = ms.get_matter(matter_id)
+        if not matter:
+            raise HTTPException(status_code=404, detail="Matter not found")
+
+        activities = ms.list_activities(matter_id)
+        deadlines = ms.list_deadlines(matter_id)
+        relationships = ms.list_relationships(matter_id)
+
+        return templates.TemplateResponse(request, "matter_detail.html", {
+            "matter": matter,
+            "activities": activities,
+            "deadlines": deadlines,
+            "relationships": relationships,
+        })
+
+    # ---------- Matter Actions (comment / status) ----------
+
+    @app.post("/matters/{matter_id}/comment")
+    async def post_comment(request: Request, matter_id: str) -> Response:
+        store = _store()
+        ms = MatterStore(store)
+        user = request.state.user
+        form = await request.form()
+        comment = str(form.get("comment", ""))
+
+        ms.add_activity(
+            matter_id=matter_id,
+            actor_id=user["id"],
+            type="comment",
+            content={"text": comment},
+        )
+        return RedirectResponse(f"/matters/{matter_id}", status_code=303)
+
+    @app.post("/matters/{matter_id}/status")
+    async def update_status(request: Request, matter_id: str) -> Response:
+        store = _store()
+        ms = MatterStore(store)
+        user = request.state.user
+        form = await request.form()
+        status = str(form.get("status", ""))
+
+        valid_statuses = {"new", "in_progress", "on_hold", "resolved"}
+        if status not in valid_statuses:
+            raise HTTPException(status_code=422, detail=f"Invalid status: {status}")
+
+        ms.update_matter(matter_id, status=status)
+        ms.add_activity(
+            matter_id=matter_id,
+            actor_id=user["id"],
+            type="status_change",
+            content={"status": status},
+        )
+        return RedirectResponse(f"/matters/{matter_id}", status_code=303)
 
     # ---------- Audit ----------
 
@@ -320,71 +320,7 @@ def create_app(*, home: Path | None = None) -> FastAPI:
             "events": events,
         })
 
-    # ---------- Settings ----------
-
-    @app.get("/settings", response_class=HTMLResponse, dependencies=[Depends(require_permission("manage_settings"))])
-    async def settings_page(request: Request) -> HTMLResponse:
-        loaded = load_config(path=home_dir / "config.yml", home=home_dir)
-        return templates.TemplateResponse(request, "settings.html", {
-            "config": loaded.config,
-            "home": str(home_dir),
-        })
-
-    # ---------- SSE for real-time updates ----------
-
-    @app.get("/events/stream", dependencies=[Depends(require_permission("view_runs"))])
-    async def event_stream(since: int = Query(0, ge=0)) -> StreamingResponse:
-        store = _store()
-
-        async def generate():
-            last_seq = since
-            while True:
-                with store.connection() as conn:
-                    rows = conn.execute(
-                        """
-                        SELECT seq, run_id, event_type, step_id, data_json
-                        FROM audit_events
-                        WHERE seq > ?
-                        ORDER BY seq ASC
-                        LIMIT 100
-                        """,
-                        (last_seq,),
-                    ).fetchall()
-
-                if rows:
-                    for row in rows:
-                        last_seq = int(row["seq"])
-                        payload = {
-                            "seq": last_seq,
-                            "type": row["event_type"],
-                            "run_id": row["run_id"],
-                            "step_id": row["step_id"],
-                            "data": json.loads(row["data_json"]) if row["data_json"] else {},
-                        }
-                        yield f"id: {last_seq}\n"
-                        yield f"data: {json.dumps(payload)}\n\n"
-                else:
-                    yield ": keepalive\n\n"
-
-                await asyncio.sleep(1.0)
-
-        return StreamingResponse(generate(), media_type="text/event-stream")
-
     # ---------- API endpoints ----------
-
-    @app.get("/api/runs", dependencies=[Depends(require_permission("view_runs"))])
-    async def api_runs(limit: int = Query(20, ge=1, le=100)) -> list[dict]:
-        store = _store()
-        conn = store._connect()
-        try:
-            rows = conn.execute(
-                "SELECT id, playbook_name, status, started_at, ended_at, dry_run "
-                "FROM runs ORDER BY started_at DESC LIMIT ?",
-                (limit,),
-            ).fetchall()
-            return [dict(r) for r in rows]
-        finally:
-            conn.close()
 
     @app.get("/api/audit", dependencies=[Depends(require_permission("view_audit"))])
     async def api_audit(
@@ -395,39 +331,5 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         if run_id:
             return store.list_audit_events_for_run(run_id=run_id)
         return store.list_audit_events(limit=limit)
-
-    # ---------- Run trigger ----------
-
-    _run_event_bus = EventBus()
-
-    def _run_service() -> RunService:
-        return RunService(home_dir)
-
-    @app.post("/api/runs", dependencies=[Depends(require_permission("run_playbooks"))])
-    async def api_trigger_run(
-        body: dict[str, Any] = Body(...),
-    ) -> JSONResponse:
-        playbook = body.get("playbook")
-        if not playbook or not isinstance(playbook, str):
-            raise HTTPException(status_code=422, detail="playbook name is required")
-
-        inputs = body.get("inputs", {})
-        if not isinstance(inputs, dict):
-            raise HTTPException(status_code=422, detail="inputs must be an object")
-
-        dry_run = body.get("dry_run", True)
-
-        svc = _run_service()
-        try:
-            run_id = svc.trigger_run(
-                playbook_name=playbook,
-                inputs=inputs,
-                dry_run=bool(dry_run),
-                event_bus=_run_event_bus,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=404, detail=str(exc))
-
-        return JSONResponse({"run_id": run_id, "status": "started"}, status_code=201)
 
     return app

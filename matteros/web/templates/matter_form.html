@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}New Matter{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem">
+    <a href="/matters" style="color:var(--muted); text-decoration:none;">&larr; All Matters</a>
+</div>
+<h2>New Matter</h2>
+
+<form method="POST" action="/matters/new" class="card">
+    <div class="field" style="margin-bottom:1rem;">
+        <label style="display:block; font-size:0.8rem; color:var(--muted); margin-bottom:0.3rem;">Title</label>
+        <input type="text" name="title" required style="width:100%;">
+    </div>
+    <div style="display:flex; gap:1rem; margin-bottom:1rem;">
+        <div style="flex:1;">
+            <label style="display:block; font-size:0.8rem; color:var(--muted); margin-bottom:0.3rem;">Type</label>
+            <select name="type" style="width:100%;">
+                <option value="request">Request</option>
+                <option value="contract">Contract</option>
+                <option value="compliance">Compliance</option>
+                <option value="custom">Custom</option>
+            </select>
+        </div>
+        <div style="flex:1;">
+            <label style="display:block; font-size:0.8rem; color:var(--muted); margin-bottom:0.3rem;">Priority</label>
+            <select name="priority" style="width:100%;">
+                <option value="low">Low</option>
+                <option value="medium" selected>Medium</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+            </select>
+        </div>
+    </div>
+    <div style="display:flex; gap:1rem; margin-bottom:1rem;">
+        <div style="flex:1;">
+            <label style="display:block; font-size:0.8rem; color:var(--muted); margin-bottom:0.3rem;">Due Date</label>
+            <input type="date" name="due_date">
+        </div>
+        <div style="flex:1; display:flex; align-items:flex-end;">
+            <label style="font-size:0.8rem; color:var(--muted); display:flex; align-items:center; gap:0.5rem;">
+                <input type="checkbox" name="privileged" value="1" checked> Privileged
+            </label>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-green">Create Matter</button>
+</form>
+{% endblock %}

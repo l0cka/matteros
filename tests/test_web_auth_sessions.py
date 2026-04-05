@@ -18,7 +18,7 @@ def _setup_app_with_user(
     tmp_path: Path,
     username: str = "testuser",
     password: str = "testpass",
-    role: str = "solicitor",
+    role: str = "legal",
 ) -> tuple[TestClient, str, str]:
     """Create app, add a user, return (client, user_id, password)."""
     home = tmp_path / "home"
@@ -88,7 +88,7 @@ def test_unauthenticated_redirects_to_login(tmp_path: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
-    manager.create_user(username="u", role="dev", password_hash=hash_password("p"))
+    manager.create_user(username="u", role="gc", password_hash=hash_password("p"))
     app = create_app(home=home)
     client = TestClient(app)
 
@@ -103,7 +103,7 @@ def test_login_page_accessible_without_auth(tmp_path: Path) -> None:
     home.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
-    manager.create_user(username="u", role="dev", password_hash=hash_password("p"))
+    manager.create_user(username="u", role="gc", password_hash=hash_password("p"))
     app = create_app(home=home)
     client = TestClient(app)
 
@@ -129,39 +129,29 @@ def test_solo_mode_shows_setup_message(tmp_path: Path) -> None:
 # --- Permission enforcement ---
 
 
-def test_paralegal_cannot_trigger_run(tmp_path: Path) -> None:
-    client, _, password = _setup_app_with_user(tmp_path, role="paralegal")
+def test_run_trigger_route_removed(tmp_path: Path) -> None:
+    # /api/runs POST route has been removed from the web layer
+    client, _, password = _setup_app_with_user(tmp_path, role="legal")
     client.post("/login", data={"username": "testuser", "password": password})
     response = client.post("/api/runs", json={"playbook": "test", "dry_run": True})
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
-def test_paralegal_cannot_view_audit(tmp_path: Path) -> None:
-    client, _, password = _setup_app_with_user(tmp_path, role="paralegal")
-    client.post("/login", data={"username": "testuser", "password": password})
-    response = client.get("/audit", follow_redirects=False)
-    assert response.status_code == 403
-
-
-def test_solicitor_can_view_runs(tmp_path: Path) -> None:
-    client, _, password = _setup_app_with_user(tmp_path)
-    client.post("/login", data={"username": "testuser", "password": password})
-    response = client.get("/runs")
-    assert response.status_code == 200
-
-
-def test_dev_can_access_settings(tmp_path: Path) -> None:
-    client, _, password = _setup_app_with_user(tmp_path, role="dev")
-    client.post("/login", data={"username": "testuser", "password": password})
-    response = client.get("/settings")
-    assert response.status_code == 200
-
-
-def test_solicitor_cannot_access_settings(tmp_path: Path) -> None:
-    client, _, password = _setup_app_with_user(tmp_path)
+def test_settings_route_removed(tmp_path: Path) -> None:
+    # /settings route has been removed from the web layer
+    client, _, password = _setup_app_with_user(tmp_path, role="legal")
     client.post("/login", data={"username": "testuser", "password": password})
     response = client.get("/settings", follow_redirects=False)
-    assert response.status_code == 403
+    assert response.status_code == 404
+
+
+def test_gc_can_access_settings(tmp_path: Path) -> None:
+    # gc role: check the user can log in and access authenticated routes
+    client, _, password = _setup_app_with_user(tmp_path, role="gc")
+    client.post("/login", data={"username": "testuser", "password": password})
+    # gc has view_audit; settings still requires manage_settings which gc lacks too
+    response = client.get("/audit", follow_redirects=False)
+    assert response.status_code == 200
 
 
 # --- Expired session ---
@@ -176,7 +166,7 @@ def test_expired_session_redirects_to_login(tmp_path: Path) -> None:
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
     user_id = manager.create_user(
-        username="expuser", role="dev", password_hash=hash_password("p"),
+        username="expuser", role="gc", password_hash=hash_password("p"),
     )
 
     app = create_app(home=home)
@@ -215,68 +205,36 @@ def test_session_cookie_is_httponly(tmp_path: Path) -> None:
 # --- Own-vs-others draft approval ---
 
 
-def test_solicitor_can_approve_own_draft(tmp_path: Path) -> None:
+def test_draft_approve_route_removed(tmp_path: Path) -> None:
+    # Draft approval routes have been removed from the web layer.
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
-    user_id = manager.create_user(
-        username="sol", role="solicitor", password_hash=hash_password("p"),
+    manager.create_user(
+        username="gc1", role="gc", password_hash=hash_password("p"),
     )
-    from matteros.drafts.manager import DraftManager
-    dm = DraftManager(store)
-    draft_id = dm.create_draft(run_id="r1", entry={"matter_id": "M1", "duration_minutes": 10, "narrative": "x", "confidence": 0.8})
-    with store.connection() as conn:
-        conn.execute("UPDATE drafts SET user_id = ? WHERE id = ?", (user_id, draft_id))
-        conn.commit()
 
     app = create_app(home=home)
     client = TestClient(app)
-    client.post("/login", data={"username": "sol", "password": "p"})
-    response = client.post(f"/drafts/{draft_id}/approve")
-    assert response.status_code == 204
+    client.post("/login", data={"username": "gc1", "password": "p"})
+    response = client.post("/drafts/some-id/approve")
+    assert response.status_code == 404
 
 
-def test_solicitor_cannot_approve_others_draft(tmp_path: Path) -> None:
+def test_draft_approve_others_route_removed(tmp_path: Path) -> None:
+    # Draft approval routes have been removed from the web layer.
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
-    manager.create_user(username="sol", role="solicitor", password_hash=hash_password("p"))
-    other_id = manager.create_user(username="other", role="solicitor", password_hash=hash_password("p2"))
-    from matteros.drafts.manager import DraftManager
-    dm = DraftManager(store)
-    draft_id = dm.create_draft(run_id="r1", entry={"matter_id": "M1", "duration_minutes": 10, "narrative": "x", "confidence": 0.8})
-    with store.connection() as conn:
-        conn.execute("UPDATE drafts SET user_id = ? WHERE id = ?", (other_id, draft_id))
-        conn.commit()
+    manager.create_user(username="legal1", role="legal", password_hash=hash_password("p"))
 
     app = create_app(home=home)
     client = TestClient(app)
-    client.post("/login", data={"username": "sol", "password": "p"})
-    response = client.post(f"/drafts/{draft_id}/approve")
-    assert response.status_code == 403
-
-
-def test_sr_solicitor_can_approve_others_draft(tmp_path: Path) -> None:
-    home = tmp_path / "home"
-    home.mkdir(parents=True, exist_ok=True)
-    store = SQLiteStore(home / "matteros.db")
-    manager = UserManager(store)
-    manager.create_user(username="sr", role="sr_solicitor", password_hash=hash_password("p"))
-    other_id = manager.create_user(username="other", role="solicitor", password_hash=hash_password("p2"))
-    from matteros.drafts.manager import DraftManager
-    dm = DraftManager(store)
-    draft_id = dm.create_draft(run_id="r1", entry={"matter_id": "M1", "duration_minutes": 10, "narrative": "x", "confidence": 0.8})
-    with store.connection() as conn:
-        conn.execute("UPDATE drafts SET user_id = ? WHERE id = ?", (other_id, draft_id))
-        conn.commit()
-
-    app = create_app(home=home)
-    client = TestClient(app)
-    client.post("/login", data={"username": "sr", "password": "p"})
-    response = client.post(f"/drafts/{draft_id}/approve")
-    assert response.status_code == 204
+    client.post("/login", data={"username": "legal1", "password": "p"})
+    response = client.post("/drafts/some-id/approve")
+    assert response.status_code == 404
 
 
 # --- Legacy SHA-256 hash rejection ---
@@ -290,7 +248,7 @@ def test_legacy_sha256_hash_cannot_login(tmp_path: Path) -> None:
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
     legacy_hash = hl.sha256(b"oldpass").hexdigest()
-    manager.create_user(username="legacy", role="dev", password_hash=legacy_hash)
+    manager.create_user(username="legacy", role="gc", password_hash=legacy_hash)
 
     app = create_app(home=home)
     client = TestClient(app)

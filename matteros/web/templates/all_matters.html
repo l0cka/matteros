@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}All Matters{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem">
+    <h2 style="margin-bottom:0">All Matters</h2>
+    <a href="/matters/new" class="btn btn-green" style="font-size:0.75rem">New Matter</a>
+</div>
+
+<form class="filters" method="GET" action="/matters">
+    <select name="status">
+        <option value="">All statuses</option>
+        <option value="new" {% if filter_status == "new" %}selected{% endif %}>New</option>
+        <option value="in_progress" {% if filter_status == "in_progress" %}selected{% endif %}>In Progress</option>
+        <option value="on_hold" {% if filter_status == "on_hold" %}selected{% endif %}>On Hold</option>
+        <option value="resolved" {% if filter_status == "resolved" %}selected{% endif %}>Resolved</option>
+    </select>
+    <select name="type">
+        <option value="">All types</option>
+        <option value="contract" {% if filter_type == "contract" %}selected{% endif %}>Contract</option>
+        <option value="request" {% if filter_type == "request" %}selected{% endif %}>Request</option>
+        <option value="compliance" {% if filter_type == "compliance" %}selected{% endif %}>Compliance</option>
+    </select>
+    <button type="submit" class="btn">Filter</button>
+</form>
+
+<table>
+    <thead>
+        <tr><th>Title</th><th>Type</th><th>Status</th><th>Priority</th><th>Assignee</th><th>Due Date</th></tr>
+    </thead>
+    <tbody>
+        {% for m in matters %}
+        <tr>
+            <td><a href="/matters/{{ m.id }}" style="color: var(--accent)">{{ m.title }}</a></td>
+            <td>{{ m.type }}</td>
+            <td><span class="badge badge-{{ m.status }}">{{ m.status }}</span></td>
+            <td><span class="badge badge-{{ m.priority }}">{{ m.priority }}</span></td>
+            <td>{{ m.assignee_name or "—" }}</td>
+            <td>{{ m.due_date[:10] if m.due_date else "—" }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if not matters %}
+<div class="card" style="text-align:center; color:var(--muted); padding:2rem;">
+    No matters found.
+</div>
+{% endif %}
+{% endblock %}

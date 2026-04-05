@@ -33,6 +33,23 @@
         .badge-red { background: #7f1d1d; color: var(--red); }
         .badge-yellow { background: #713f12; color: var(--yellow); }
         .badge-blue { background: #1e3a5f; color: var(--accent); }
+        .badge-urgent { background: #7f1d1d; color: var(--red); }
+        .badge-high { background: #713f12; color: var(--yellow); }
+        .badge-medium { background: #1e3a5f; color: var(--accent); }
+        .badge-low { background: #1e293b; color: var(--muted); }
+        .badge-new { background: #1e3a5f; color: var(--accent); }
+        .badge-in_progress { background: #713f12; color: var(--yellow); }
+        .badge-on_hold { background: #1e293b; color: var(--muted); }
+        .badge-resolved { background: #166534; color: var(--green); }
+        .badge-overdue { background: #7f1d1d; color: var(--red); }
+        .filters { display: flex; gap: 0.75rem; margin-bottom: 1rem; align-items: center; }
+        .filters select, .filters input { font-size: 0.8rem; }
+        .activity-thread { max-height: 500px; overflow-y: auto; }
+        .activity-item { padding: 0.75rem; border-left: 2px solid var(--border); margin-bottom: 0.5rem; }
+        .activity-meta { font-size: 0.7rem; color: var(--muted); margin-bottom: 0.25rem; }
+        .tab-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 1rem; }
+        .tab-bar a { padding: 0.5rem 1rem; color: var(--muted); text-decoration: none; font-size: 0.85rem; border-bottom: 2px solid transparent; }
+        .tab-bar a.active { color: var(--text); border-bottom-color: var(--accent); }
         .card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; margin-bottom: 1rem; }
         .btn { padding: 0.4rem 0.8rem; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); color: var(--text); cursor: pointer; font-size: 0.8rem; }
         .btn:hover { background: var(--bg); }
@@ -48,19 +65,11 @@
         <div style="font-size:0.75rem; color:var(--muted); margin-bottom:1rem; padding:0 0.75rem;">
             {{ request.state.user.username }} <span style="opacity:0.5">({{ request.state.user.role }})</span>
         </div>
-        <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Dashboard</a>
-        {% if "view_runs" in request.state.permissions %}
-        <a href="/runs" {% if "/runs" in request.url.path %}class="active"{% endif %}>Runs</a>
-        <a href="/approvals" {% if "/approvals" in request.url.path %}class="active"{% endif %}>Approvals</a>
-        {% endif %}
-        {% if "view_drafts" in request.state.permissions %}
-        <a href="/drafts" {% if "/drafts" in request.url.path %}class="active"{% endif %}>Drafts</a>
-        {% endif %}
+        <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>My Queue</a>
+        <a href="/matters" {% if request.url.path == "/matters" %}class="active"{% endif %}>All Matters</a>
+        <a href="/deadlines" {% if request.url.path == "/deadlines" %}class="active"{% endif %}>Deadlines</a>
         {% if "view_audit" in request.state.permissions %}
         <a href="/audit" {% if "/audit" in request.url.path %}class="active"{% endif %}>Audit Log</a>
-        {% endif %}
-        {% if "manage_settings" in request.state.permissions %}
-        <a href="/settings" {% if "/settings" in request.url.path %}class="active"{% endif %}>Settings</a>
         {% endif %}
         <form method="POST" action="/logout" style="margin-top:auto; padding-top:1rem;">
             <button type="submit" style="background:none; border:none; color:var(--muted); cursor:pointer; font-family:inherit; font-size:0.85rem; padding:0.5rem 0.75rem;">Logout</button>

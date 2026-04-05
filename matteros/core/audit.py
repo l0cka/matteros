@@ -9,6 +9,14 @@ from typing import Any, Literal
 
 from matteros.core.store import SQLiteStore
 
+_SAFE_FIELDS = {
+    "matter_id", "event_type", "action",
+    "old_status", "new_status",
+    "old_assignee", "new_assignee",
+    "deadline_id", "due_date",
+    "accessor_id",
+}
+
 
 @dataclass(slots=True)
 class VerificationResult:
@@ -37,7 +45,10 @@ class AuditLogger:
         actor: str,
         step_id: str | None,
         data: dict[str, Any],
+        privileged: bool = False,
     ) -> dict[str, Any]:
+        if privileged:
+            data = self._redact(data, event_type)
         timestamp = datetime.now(UTC).isoformat()
         prev_hash = self.store.get_last_audit_hash(run_id)
 
@@ -69,6 +80,14 @@ class AuditLogger:
             handle.write(json.dumps(event, sort_keys=True) + "\n")
 
         return event
+
+    def _redact(self, data: dict[str, Any], event_type: str) -> dict[str, Any]:
+        """Strip sensitive fields from data, keeping only safe metadata."""
+        redacted = {"event_type": event_type}
+        for key, value in data.items():
+            if key in _SAFE_FIELDS:
+                redacted[key] = value
+        return redacted
 
     def verify_run(
         self,

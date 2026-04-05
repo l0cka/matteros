@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}My Queue{% endblock %}
+{% block content %}
+<h2>My Queue</h2>
+<div class="stats">
+    <div class="stat">
+        <div class="value">{{ matters | length }}</div>
+        <div class="label">Assigned to you</div>
+    </div>
+    <div class="stat">
+        <div class="value">{{ overdue_count }}</div>
+        <div class="label">Overdue</div>
+    </div>
+    <div class="stat">
+        <div class="value">{{ upcoming_deadlines | length }}</div>
+        <div class="label">Deadlines this week</div>
+    </div>
+</div>
+
+{% if matters %}
+<table>
+    <thead>
+        <tr><th>Title</th><th>Type</th><th>Status</th><th>Priority</th><th>Due Date</th></tr>
+    </thead>
+    <tbody>
+        {% for m in matters %}
+        <tr>
+            <td><a href="/matters/{{ m.id }}" style="color: var(--accent)">{{ m.title }}</a></td>
+            <td>{{ m.type }}</td>
+            <td><span class="badge badge-{{ m.status }}">{{ m.status }}</span></td>
+            <td><span class="badge badge-{{ m.priority }}">{{ m.priority }}</span></td>
+            <td>
+                {% if m.due_date %}
+                    {% if m.is_overdue %}<span class="badge badge-overdue">overdue</span>{% endif %}
+                    {{ m.due_date[:10] }}
+                {% else %}
+                    —
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<div class="card" style="text-align:center; color:var(--muted); padding:2rem;">
+    No matters assigned to you. You're all caught up.
+</div>
+{% endif %}
+{% endblock %}
