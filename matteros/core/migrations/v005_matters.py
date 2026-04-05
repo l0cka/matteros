@@ -18,72 +18,66 @@ def upgrade(conn: sqlite3.Connection) -> None:
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS matters (
-            id TEXT PRIMARY KEY,
-            title TEXT NOT NULL,
-            type TEXT,
-            status TEXT NOT NULL,
-            privileged INTEGER DEFAULT 0,
-            assignee_id TEXT,
-            priority TEXT,
-            source TEXT,
-            source_ref TEXT,
-            metadata_json TEXT,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            due_date TEXT,
-            resolved_at TEXT
+            id              TEXT PRIMARY KEY,
+            title           TEXT NOT NULL,
+            type            TEXT NOT NULL,
+            status          TEXT NOT NULL DEFAULT 'new',
+            assignee_id     TEXT REFERENCES users(id),
+            priority        TEXT DEFAULT 'medium',
+            privileged      INTEGER NOT NULL DEFAULT 1,
+            source          TEXT,
+            source_ref      TEXT,
+            metadata_json   TEXT,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL,
+            due_date        TEXT,
+            resolved_at     TEXT
         );
 
         CREATE TABLE IF NOT EXISTS activities (
-            id TEXT PRIMARY KEY,
-            matter_id TEXT NOT NULL,
-            actor_id TEXT,
-            type TEXT,
-            visibility TEXT,
-            content_json TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(matter_id) REFERENCES matters(id)
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            matter_id       TEXT NOT NULL REFERENCES matters(id),
+            actor_id        TEXT REFERENCES users(id),
+            type            TEXT NOT NULL,
+            visibility      TEXT NOT NULL DEFAULT 'internal',
+            content_json    TEXT,
+            created_at      TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS contacts (
-            id TEXT PRIMARY KEY,
-            name TEXT NOT NULL,
-            email TEXT UNIQUE,
-            department TEXT,
-            created_at TEXT NOT NULL
+            id              TEXT PRIMARY KEY,
+            name            TEXT NOT NULL,
+            email           TEXT NOT NULL UNIQUE,
+            department      TEXT,
+            created_at      TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS matter_contacts (
-            matter_id TEXT NOT NULL,
-            contact_id TEXT NOT NULL,
-            role TEXT,
-            PRIMARY KEY (matter_id, contact_id),
-            FOREIGN KEY(matter_id) REFERENCES matters(id),
-            FOREIGN KEY(contact_id) REFERENCES contacts(id)
+            matter_id       TEXT NOT NULL REFERENCES matters(id),
+            contact_id      TEXT NOT NULL REFERENCES contacts(id),
+            role            TEXT DEFAULT 'requestor',
+            PRIMARY KEY (matter_id, contact_id)
         );
 
         CREATE TABLE IF NOT EXISTS deadlines (
-            id TEXT PRIMARY KEY,
-            matter_id TEXT NOT NULL,
-            label TEXT,
-            due_date TEXT,
-            type TEXT,
-            alert_before TEXT,
-            recurring TEXT,
-            status TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(matter_id) REFERENCES matters(id)
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            matter_id       TEXT NOT NULL REFERENCES matters(id),
+            label           TEXT NOT NULL,
+            due_date        TEXT NOT NULL,
+            type            TEXT NOT NULL DEFAULT 'hard',
+            alert_before    TEXT,
+            recurring       TEXT,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            created_at      TEXT NOT NULL
         );
 
         CREATE TABLE IF NOT EXISTS matter_relationships (
-            id TEXT PRIMARY KEY,
-            source_id TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            type TEXT,
-            created_at TEXT NOT NULL,
-            UNIQUE(source_id, target_id, type),
-            FOREIGN KEY(source_id) REFERENCES matters(id),
-            FOREIGN KEY(target_id) REFERENCES matters(id)
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_id       TEXT NOT NULL REFERENCES matters(id),
+            target_id       TEXT NOT NULL REFERENCES matters(id),
+            type            TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            UNIQUE (source_id, target_id, type)
         );
         """
     )
