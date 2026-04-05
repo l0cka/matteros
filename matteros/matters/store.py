@@ -101,6 +101,7 @@ class MatterStore:
         status: str | None = None,
         type: str | None = None,
         assignee_id: str | None = None,
+        source_ref: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
@@ -114,6 +115,9 @@ class MatterStore:
         if assignee_id is not None:
             clauses.append("assignee_id = ?")
             params.append(assignee_id)
+        if source_ref is not None:
+            clauses.append("source_ref = ?")
+            params.append(source_ref)
 
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(limit)
@@ -206,6 +210,13 @@ class MatterStore:
                 (matter_id, contact_id, role),
             )
             conn.commit()
+
+    def get_contact_by_email(self, email: str) -> str | None:
+        with self._db.connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM contacts WHERE email = ?", (email,)
+            ).fetchone()
+            return row["id"] if row else None
 
     def list_matter_contacts(self, matter_id: str) -> list[dict[str, Any]]:
         with self._db.connection() as conn:
