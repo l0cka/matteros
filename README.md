@@ -1,12 +1,12 @@
 # MatterOS
 
-MatterOS is an open-source, self-hosted legal ops command center for lean in-house legal teams.
+MatterOS is an open-source, self-hosted legal ops command center.
 
-Track contracts, business requests, and compliance deadlines in one place — with privilege-aware access controls, auditable logging, and smart automation.
+Track contracts, requests, and compliance deadlines in one place — with privilege-aware access controls, auditable logging, and smart automation.
 
 ## Why it exists
 
-In-house legal teams are drowning in work scattered across email, Slack, Jira, and spreadsheets. MatterOS gives a 2-3 person legal team:
+Legal teams are drowning in work scattered across email, Slack, Jira, and spreadsheets. MatterOS gives a lean legal team:
 
 - a single queue of everything that needs attention
 - deadline tracking that won't let things slip

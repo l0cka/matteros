@@ -1,8 +1,8 @@
-# In-House Legal Ops Web UI — Implementation Plan
+# Legal Ops Web UI — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the playbook-centric web UI (runs, approvals, drafts) with matter management views: My Queue, All Matters, Deadlines, and Matter Detail — the working in-house lawyer's daily experience.
+**Goal:** Replace the playbook-centric web UI (runs, approvals, drafts) with matter management views: My Queue, All Matters, Deadlines, and Matter Detail — the working lawyer's daily experience.
 
 **Architecture:** Rewrite `matteros/web/app.py` to serve matter-based routes using `MatterStore` and the new authorization model. Keep the existing FastAPI + HTMX + Jinja2 stack. Templates reuse the existing dark theme from `base.html`. Auth middleware stays, but nav and permissions update to the new role model.
 
