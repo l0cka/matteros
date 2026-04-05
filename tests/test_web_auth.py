@@ -10,7 +10,6 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from matteros.core.store import SQLiteStore
-from matteros.drafts.manager import DraftManager
 from matteros.team.users import UserManager, hash_password
 from matteros.web.app import create_app
 
@@ -59,27 +58,11 @@ def test_web_login_sets_session_cookie(tmp_path: Path) -> None:
     assert dash.status_code == 200
 
 
-def test_draft_approve_endpoint_requires_approve_own_permission(tmp_path: Path) -> None:
-    # The web layer guards /drafts/{id}/approve with approve_own/approve_others.
-    # The new role model (legal/gc) does not include these legacy permission names,
-    # so approvals via web require the web layer to be updated to use new permission
-    # names (future task). Until then, authenticated users without approve_own get 403.
+def test_draft_approve_endpoint_removed(tmp_path: Path) -> None:
+    # Draft approval routes have been removed from the web layer.
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     client = _make_authed_client(home)
 
-    store = SQLiteStore(home / "matteros.db")
-    manager = DraftManager(store)
-    draft_id = manager.create_draft(
-        run_id="run-1",
-        entry={
-            "matter_id": "MAT-123",
-            "duration_minutes": 30,
-            "narrative": "Draft entry",
-            "confidence": 0.9,
-        },
-    )
-
-    response = client.post(f"/drafts/{draft_id}/approve")
-    # gc role has manage_matters but not legacy approve_own permission name
-    assert response.status_code == 403
+    response = client.post("/drafts/some-id/approve")
+    assert response.status_code == 404

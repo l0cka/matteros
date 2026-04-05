@@ -129,20 +129,20 @@ def test_solo_mode_shows_setup_message(tmp_path: Path) -> None:
 # --- Permission enforcement ---
 
 
-def test_legal_cannot_trigger_run(tmp_path: Path) -> None:
-    # legal role lacks run_playbooks permission
+def test_run_trigger_route_removed(tmp_path: Path) -> None:
+    # /api/runs POST route has been removed from the web layer
     client, _, password = _setup_app_with_user(tmp_path, role="legal")
     client.post("/login", data={"username": "testuser", "password": password})
     response = client.post("/api/runs", json={"playbook": "test", "dry_run": True})
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
-def test_legal_cannot_access_settings(tmp_path: Path) -> None:
-    # legal role lacks manage_settings permission
+def test_settings_route_removed(tmp_path: Path) -> None:
+    # /settings route has been removed from the web layer
     client, _, password = _setup_app_with_user(tmp_path, role="legal")
     client.post("/login", data={"username": "testuser", "password": password})
     response = client.get("/settings", follow_redirects=False)
-    assert response.status_code == 403
+    assert response.status_code == 404
 
 
 def test_gc_can_access_settings(tmp_path: Path) -> None:
@@ -205,51 +205,36 @@ def test_session_cookie_is_httponly(tmp_path: Path) -> None:
 # --- Own-vs-others draft approval ---
 
 
-def test_draft_approve_requires_approve_own_permission(tmp_path: Path) -> None:
-    # The web layer guards draft approval with legacy approve_own/approve_others permission
-    # names. The new role model (legal/gc) does not include these names, so all
-    # draft approval attempts return 403 until the web layer is updated (future task).
+def test_draft_approve_route_removed(tmp_path: Path) -> None:
+    # Draft approval routes have been removed from the web layer.
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
-    user_id = manager.create_user(
+    manager.create_user(
         username="gc1", role="gc", password_hash=hash_password("p"),
     )
-    from matteros.drafts.manager import DraftManager
-    dm = DraftManager(store)
-    draft_id = dm.create_draft(run_id="r1", entry={"matter_id": "M1", "duration_minutes": 10, "narrative": "x", "confidence": 0.8})
-    with store.connection() as conn:
-        conn.execute("UPDATE drafts SET user_id = ? WHERE id = ?", (user_id, draft_id))
-        conn.commit()
 
     app = create_app(home=home)
     client = TestClient(app)
     client.post("/login", data={"username": "gc1", "password": "p"})
-    response = client.post(f"/drafts/{draft_id}/approve")
-    # gc has manage_matters but not legacy approve_own; web layer needs updating
-    assert response.status_code == 403
+    response = client.post("/drafts/some-id/approve")
+    assert response.status_code == 404
 
 
-def test_legal_cannot_approve_others_draft(tmp_path: Path) -> None:
+def test_draft_approve_others_route_removed(tmp_path: Path) -> None:
+    # Draft approval routes have been removed from the web layer.
     home = tmp_path / "home"
     home.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
     manager.create_user(username="legal1", role="legal", password_hash=hash_password("p"))
-    other_id = manager.create_user(username="other", role="legal", password_hash=hash_password("p2"))
-    from matteros.drafts.manager import DraftManager
-    dm = DraftManager(store)
-    draft_id = dm.create_draft(run_id="r1", entry={"matter_id": "M1", "duration_minutes": 10, "narrative": "x", "confidence": 0.8})
-    with store.connection() as conn:
-        conn.execute("UPDATE drafts SET user_id = ? WHERE id = ?", (other_id, draft_id))
-        conn.commit()
 
     app = create_app(home=home)
     client = TestClient(app)
     client.post("/login", data={"username": "legal1", "password": "p"})
-    response = client.post(f"/drafts/{draft_id}/approve")
-    assert response.status_code == 403
+    response = client.post("/drafts/some-id/approve")
+    assert response.status_code == 404
 
 
 # --- Legacy SHA-256 hash rejection ---
