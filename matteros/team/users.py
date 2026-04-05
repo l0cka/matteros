@@ -1,11 +1,8 @@
 """User management for team mode.
 
 Roles:
-- dev: full access including user management
-- partner_gc: senior legal leadership, full access except user management
-- sr_solicitor: senior lawyer, can approve for others
-- solicitor: lawyer, can approve own entries
-- paralegal: support staff, create/view drafts and runs
+- legal: lawyer, full matter management with audit access
+- gc: general counsel, full access including user management and dashboard
 """
 
 from __future__ import annotations
@@ -46,28 +43,18 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return derived.hex() == hash_hex
 
 
-VALID_ROLES = {"dev", "partner_gc", "sr_solicitor", "solicitor", "paralegal"}
+VALID_ROLES = {"legal", "gc"}
 
 # Permission matrix: role -> set of allowed actions
 ROLE_PERMISSIONS: dict[str, set[str]] = {
-    "dev": {
-        "manage_users", "manage_settings", "run_playbooks", "create_drafts",
-        "approve_own", "approve_others", "view_runs", "view_audit", "view_reports", "view_drafts",
+    "legal": {
+        "manage_matters", "view_matters", "view_audit",
+        "manage_deadlines", "manage_contacts",
     },
-    "partner_gc": {
-        "manage_settings", "run_playbooks", "create_drafts",
-        "approve_own", "approve_others", "view_runs", "view_audit", "view_reports", "view_drafts",
-    },
-    "sr_solicitor": {
-        "run_playbooks", "create_drafts", "approve_own", "approve_others",
-        "view_runs", "view_audit", "view_reports", "view_drafts",
-    },
-    "solicitor": {
-        "run_playbooks", "create_drafts", "approve_own",
-        "view_runs", "view_audit", "view_drafts",
-    },
-    "paralegal": {
-        "create_drafts", "view_runs", "view_drafts",
+    "gc": {
+        "manage_matters", "view_matters", "view_audit",
+        "manage_deadlines", "manage_contacts",
+        "manage_users", "view_dashboard",
     },
 }
 

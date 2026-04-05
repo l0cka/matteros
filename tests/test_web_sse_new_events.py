@@ -18,7 +18,7 @@ def _init_home(home: Path) -> str:
     home.mkdir(parents=True, exist_ok=True)
     store = SQLiteStore(home / "matteros.db")
     manager = UserManager(store)
-    user_id = manager.create_user(username="dev", role="dev", password_hash=hash_password("p"))
+    user_id = manager.create_user(username="dev", role="gc", password_hash=hash_password("p"))
     with store.connection() as conn:
         conn.execute(
             "INSERT INTO audit_events (run_id, timestamp, event_type, actor, step_id, data_json, prev_hash, event_hash) "

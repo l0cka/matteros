@@ -18,32 +18,32 @@ def test_create_and_get_user(tmp_path: Path) -> None:
 
     user_id = manager.create_user(
         username="testuser",
-        role="solicitor",
+        role="legal",
         password_hash="fakehash",
     )
     user = manager.get_user(user_id)
     assert user is not None
     assert user["username"] == "testuser"
-    assert user["role"] == "solicitor"
+    assert user["role"] == "legal"
 
 
 def test_get_user_by_username(tmp_path: Path) -> None:
     store = SQLiteStore(tmp_path / "test.db")
     manager = UserManager(store)
 
-    manager.create_user(username="alice", role="dev", password_hash="h1")
+    manager.create_user(username="alice", role="gc", password_hash="h1")
     user = manager.get_user_by_username("alice")
     assert user is not None
-    assert user["role"] == "dev"
+    assert user["role"] == "gc"
 
 
 def test_list_users(tmp_path: Path) -> None:
     store = SQLiteStore(tmp_path / "test.db")
     manager = UserManager(store)
 
-    manager.create_user(username="u1", role="dev", password_hash="h1")
-    manager.create_user(username="u2", role="solicitor", password_hash="h2")
-    manager.create_user(username="u3", role="paralegal", password_hash="h3")
+    manager.create_user(username="u1", role="gc", password_hash="h1")
+    manager.create_user(username="u2", role="legal", password_hash="h2")
+    manager.create_user(username="u3", role="legal", password_hash="h3")
 
     users = manager.list_users()
     assert len(users) == 3
@@ -53,11 +53,11 @@ def test_update_role(tmp_path: Path) -> None:
     store = SQLiteStore(tmp_path / "test.db")
     manager = UserManager(store)
 
-    uid = manager.create_user(username="bob", role="solicitor", password_hash="h")
-    manager.update_role(uid, "sr_solicitor")
+    uid = manager.create_user(username="bob", role="legal", password_hash="h")
+    manager.update_role(uid, "gc")
 
     user = manager.get_user(uid)
-    assert user["role"] == "sr_solicitor"
+    assert user["role"] == "gc"
 
 
 def test_invalid_role_raises(tmp_path: Path) -> None:
@@ -71,7 +71,7 @@ def test_invalid_role_raises(tmp_path: Path) -> None:
 def test_valid_roles_rejects_old_names(tmp_path: Path) -> None:
     store = SQLiteStore(tmp_path / "test.db")
     manager = UserManager(store)
-    for old_role in ("admin", "attorney", "reviewer"):
+    for old_role in ("dev", "partner_gc", "sr_solicitor", "solicitor", "paralegal"):
         with pytest.raises(ValueError, match="invalid role"):
             manager.create_user(username=f"u_{old_role}", role=old_role, password_hash="h")
 
@@ -79,62 +79,34 @@ def test_valid_roles_rejects_old_names(tmp_path: Path) -> None:
 def test_valid_roles_accepts_new_names(tmp_path: Path) -> None:
     store = SQLiteStore(tmp_path / "test.db")
     manager = UserManager(store)
-    for role in ("dev", "partner_gc", "sr_solicitor", "solicitor", "paralegal"):
+    for role in ("legal", "gc"):
         uid = manager.create_user(username=f"u_{role}", role=role, password_hash="h")
         assert manager.get_user(uid)["role"] == role
 
 
-def test_permission_dev_has_all(tmp_path: Path) -> None:
+def test_permission_gc_has_manage_users(tmp_path: Path) -> None:
     store = SQLiteStore(tmp_path / "test.db")
     manager = UserManager(store)
-    uid = manager.create_user(username="dev1", role="dev", password_hash="h")
+    uid = manager.create_user(username="gc1", role="gc", password_hash="h")
     for action in (
-        "manage_users", "manage_settings", "run_playbooks", "create_drafts",
-        "approve_own", "approve_others", "view_runs", "view_audit", "view_reports", "view_drafts",
+        "manage_matters", "view_matters", "view_audit",
+        "manage_deadlines", "manage_contacts",
+        "manage_users", "view_dashboard",
     ):
         assert manager.check_permission(uid, action) is True
 
 
-def test_permission_solicitor_cannot_approve_others(tmp_path: Path) -> None:
+def test_permission_legal_cannot_manage_users(tmp_path: Path) -> None:
     store = SQLiteStore(tmp_path / "test.db")
     manager = UserManager(store)
-    uid = manager.create_user(username="sol1", role="solicitor", password_hash="h")
-    assert manager.check_permission(uid, "run_playbooks") is True
-    assert manager.check_permission(uid, "approve_own") is True
-    assert manager.check_permission(uid, "approve_others") is False
-    assert manager.check_permission(uid, "view_reports") is False
-
-
-def test_permission_paralegal_limited(tmp_path: Path) -> None:
-    store = SQLiteStore(tmp_path / "test.db")
-    manager = UserManager(store)
-    uid = manager.create_user(username="para1", role="paralegal", password_hash="h")
-    assert manager.check_permission(uid, "create_drafts") is True
-    assert manager.check_permission(uid, "view_runs") is True
-    assert manager.check_permission(uid, "view_drafts") is True
-    assert manager.check_permission(uid, "run_playbooks") is False
-    assert manager.check_permission(uid, "approve_own") is False
-    assert manager.check_permission(uid, "approve_others") is False
-    assert manager.check_permission(uid, "view_audit") is False
-    assert manager.check_permission(uid, "view_reports") is False
-
-
-def test_permission_sr_solicitor_can_approve_others(tmp_path: Path) -> None:
-    store = SQLiteStore(tmp_path / "test.db")
-    manager = UserManager(store)
-    uid = manager.create_user(username="sr1", role="sr_solicitor", password_hash="h")
-    assert manager.check_permission(uid, "approve_others") is True
-    assert manager.check_permission(uid, "view_reports") is True
+    uid = manager.create_user(username="legal1", role="legal", password_hash="h")
+    assert manager.check_permission(uid, "manage_matters") is True
+    assert manager.check_permission(uid, "view_matters") is True
+    assert manager.check_permission(uid, "view_audit") is True
+    assert manager.check_permission(uid, "manage_deadlines") is True
+    assert manager.check_permission(uid, "manage_contacts") is True
     assert manager.check_permission(uid, "manage_users") is False
-
-
-def test_permission_partner_gc_can_manage_settings(tmp_path: Path) -> None:
-    store = SQLiteStore(tmp_path / "test.db")
-    manager = UserManager(store)
-    uid = manager.create_user(username="gc1", role="partner_gc", password_hash="h")
-    assert manager.check_permission(uid, "manage_settings") is True
-    assert manager.check_permission(uid, "approve_others") is True
-    assert manager.check_permission(uid, "manage_users") is False
+    assert manager.check_permission(uid, "view_dashboard") is False
 
 
 def test_hash_password_produces_salt_scrypt_format() -> None:
