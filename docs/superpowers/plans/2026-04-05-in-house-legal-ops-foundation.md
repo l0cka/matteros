@@ -1,8 +1,8 @@
-# In-House Legal Ops Foundation — Implementation Plan
+# Legal Ops Foundation — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the foundational data layer for the MatterOS in-house legal ops redesign — schema, privilege-aware audit, authorization, and CRUD operations for matters, activities, contacts, and deadlines.
+**Goal:** Build the foundational data layer for the MatterOS legal ops redesign — schema, privilege-aware audit, authorization, and CRUD operations for matters, activities, contacts, and deadlines.
 
 **Architecture:** New SQLite tables via the existing migration runner. A `MatterStore` class provides CRUD. The audit logger gains a privilege-aware redaction path. Authorization moves from global role strings to per-matter evaluation. Old playbook tables are retained but deprecated.
 
@@ -399,7 +399,7 @@ Expected: All 4 tests PASS
 
 ```bash
 git add matteros/team/users.py tests/test_matter_roles.py
-git commit -m "feat: replace old roles with legal/gc for in-house model"
+git commit -m "feat: replace old roles with legal/gc for legal ops model"
 ```
 
 ---
@@ -1266,7 +1266,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'matteros.matters.auth'
 Create `matteros/matters/auth.py`:
 
 ```python
-"""Per-matter authorization for the in-house legal ops model."""
+"""Per-matter authorization for the legal ops model."""
 from __future__ import annotations
 
 from typing import Any
