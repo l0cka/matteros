@@ -160,3 +160,87 @@ class TestMatterDetail:
 
         response = client.get("/matters/nonexistent")
         assert response.status_code == 404
+
+
+class TestMatterActions:
+    def test_post_comment(self, tmp_path: Path):
+        home = tmp_path / "home"
+        home.mkdir()
+        client = _make_client(home)
+        ms = _matter_store(home)
+        matter_id = ms.create_matter(title="Test", type="request")
+
+        response = client.post(
+            f"/matters/{matter_id}/comment",
+            data={"comment": "New comment here"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        activities = ms.list_activities(matter_id)
+        assert len(activities) == 1
+        assert activities[0]["content"]["text"] == "New comment here"
+
+    def test_update_status(self, tmp_path: Path):
+        home = tmp_path / "home"
+        home.mkdir()
+        client = _make_client(home)
+        ms = _matter_store(home)
+        matter_id = ms.create_matter(title="Test", type="request")
+
+        response = client.post(
+            f"/matters/{matter_id}/status",
+            data={"status": "in_progress"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+
+        matter = ms.get_matter(matter_id)
+        assert matter["status"] == "in_progress"
+
+
+class TestCreateMatter:
+    def test_new_matter_form_returns_200(self, tmp_path: Path):
+        home = tmp_path / "home"
+        home.mkdir()
+        client = _make_client(home)
+        response = client.get("/matters/new")
+        assert response.status_code == 200
+        assert "New Matter" in response.text
+
+    def test_create_matter_redirects(self, tmp_path: Path):
+        home = tmp_path / "home"
+        home.mkdir()
+        client = _make_client(home)
+
+        response = client.post(
+            "/matters/new",
+            data={
+                "title": "New Contract",
+                "type": "contract",
+                "priority": "high",
+                "privileged": "1",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert "/matters/" in response.headers["location"]
+
+    def test_create_matter_persists(self, tmp_path: Path):
+        home = tmp_path / "home"
+        home.mkdir()
+        client = _make_client(home)
+
+        client.post(
+            "/matters/new",
+            data={
+                "title": "Test Matter",
+                "type": "request",
+                "priority": "medium",
+            },
+        )
+
+        ms = _matter_store(home)
+        matters = ms.list_matters()
+        assert len(matters) == 1
+        assert matters[0]["title"] == "Test Matter"

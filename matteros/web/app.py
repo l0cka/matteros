@@ -190,6 +190,35 @@ def create_app(*, home: Path | None = None) -> FastAPI:
             "filter_type": type or "",
         })
 
+    # ---------- Create Matter ----------
+
+    @app.get("/matters/new", response_class=HTMLResponse)
+    async def new_matter_form(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request, "matter_form.html", {})
+
+    @app.post("/matters/new")
+    async def create_matter_submit(request: Request) -> Response:
+        store = _store()
+        ms = MatterStore(store)
+        user = request.state.user
+        form = await request.form()
+
+        title = str(form.get("title", ""))
+        type_ = str(form.get("type", "request"))
+        priority = str(form.get("priority", "medium"))
+        due_date = str(form.get("due_date", "")) or None
+        privileged = bool(form.get("privileged"))
+
+        matter_id = ms.create_matter(
+            title=title,
+            type=type_,
+            priority=priority,
+            due_date=due_date,
+            privileged=privileged,
+            assignee_id=user["id"],
+        )
+        return RedirectResponse(f"/matters/{matter_id}", status_code=303)
+
     # ---------- Matter Detail ----------
 
     @app.get("/matters/{matter_id}", response_class=HTMLResponse)
@@ -210,6 +239,45 @@ def create_app(*, home: Path | None = None) -> FastAPI:
             "deadlines": deadlines,
             "relationships": relationships,
         })
+
+    # ---------- Matter Actions (comment / status) ----------
+
+    @app.post("/matters/{matter_id}/comment")
+    async def post_comment(request: Request, matter_id: str) -> Response:
+        store = _store()
+        ms = MatterStore(store)
+        user = request.state.user
+        form = await request.form()
+        comment = str(form.get("comment", ""))
+
+        ms.add_activity(
+            matter_id=matter_id,
+            actor_id=user["id"],
+            type="comment",
+            content={"text": comment},
+        )
+        return RedirectResponse(f"/matters/{matter_id}", status_code=303)
+
+    @app.post("/matters/{matter_id}/status")
+    async def update_status(request: Request, matter_id: str) -> Response:
+        store = _store()
+        ms = MatterStore(store)
+        user = request.state.user
+        form = await request.form()
+        status = str(form.get("status", ""))
+
+        valid_statuses = {"new", "in_progress", "on_hold", "resolved"}
+        if status not in valid_statuses:
+            raise HTTPException(status_code=422, detail=f"Invalid status: {status}")
+
+        ms.update_matter(matter_id, status=status)
+        ms.add_activity(
+            matter_id=matter_id,
+            actor_id=user["id"],
+            type="status_change",
+            content={"status": status},
+        )
+        return RedirectResponse(f"/matters/{matter_id}", status_code=303)
 
     # ---------- Runs ----------
 
