@@ -45,6 +45,7 @@ class TestCreateMatter:
         assert matter["source"] == "email"
         assert matter["source_ref"] == "ref-123"
         assert matter["metadata_json"] == '{"key": "value"}'
+        assert matter["metadata"] == {"key": "value"}
         assert matter["due_date"] == "2026-12-31"
 
     def test_create_defaults_privileged_true(self, store):

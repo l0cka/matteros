@@ -60,7 +60,10 @@ class MatterStore:
             ).fetchone()
         if row is None:
             return None
-        return dict(row)
+        result = dict(row)
+        if result.get("metadata_json"):
+            result["metadata"] = json.loads(result["metadata_json"])
+        return result
 
     def update_matter(self, matter_id: str, **fields: Any) -> None:
         allowed = {
