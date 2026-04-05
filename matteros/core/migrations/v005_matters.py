@@ -1,3 +1,4 @@
+"""v005: Add matter management tables and migrate roles to legal/gc."""
 from __future__ import annotations
 
 import sqlite3
@@ -15,7 +16,7 @@ ROLE_MIGRATION = {
 
 
 def upgrade(conn: sqlite3.Connection) -> None:
-    conn.executescript(
+    conn.execute(
         """
         CREATE TABLE IF NOT EXISTS matters (
             id              TEXT PRIMARY KEY,
@@ -32,8 +33,11 @@ def upgrade(conn: sqlite3.Connection) -> None:
             updated_at      TEXT NOT NULL,
             due_date        TEXT,
             resolved_at     TEXT
-        );
-
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS activities (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             matter_id       TEXT NOT NULL REFERENCES matters(id),
@@ -42,23 +46,32 @@ def upgrade(conn: sqlite3.Connection) -> None:
             visibility      TEXT NOT NULL DEFAULT 'internal',
             content_json    TEXT,
             created_at      TEXT NOT NULL
-        );
-
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS contacts (
             id              TEXT PRIMARY KEY,
             name            TEXT NOT NULL,
             email           TEXT NOT NULL UNIQUE,
             department      TEXT,
             created_at      TEXT NOT NULL
-        );
-
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS matter_contacts (
             matter_id       TEXT NOT NULL REFERENCES matters(id),
             contact_id      TEXT NOT NULL REFERENCES contacts(id),
             role            TEXT DEFAULT 'requestor',
             PRIMARY KEY (matter_id, contact_id)
-        );
-
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS deadlines (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             matter_id       TEXT NOT NULL REFERENCES matters(id),
@@ -69,8 +82,11 @@ def upgrade(conn: sqlite3.Connection) -> None:
             recurring       TEXT,
             status          TEXT NOT NULL DEFAULT 'pending',
             created_at      TEXT NOT NULL
-        );
-
+        )
+        """
+    )
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS matter_relationships (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             source_id       TEXT NOT NULL REFERENCES matters(id),
@@ -78,7 +94,7 @@ def upgrade(conn: sqlite3.Connection) -> None:
             type            TEXT NOT NULL,
             created_at      TEXT NOT NULL,
             UNIQUE (source_id, target_id, type)
-        );
+        )
         """
     )
 
