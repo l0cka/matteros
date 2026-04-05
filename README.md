@@ -1,30 +1,32 @@
 # MatterOS
 
-MatterOS is an open-source, self-hosted legal ops command center.
+MatterOS is an open-source, self-hosted legal ops command center for lean in-house legal teams.
 
-It is less "chat with a black box" and more "run explicit workflows with approvals, logs, and receipts."
+Track contracts, business requests, and compliance deadlines in one place — with privilege-aware access controls, auditable logging, and smart automation.
 
 ## Why it exists
 
-Legal work is fragmented across inboxes, calendars, documents, and matter systems. MatterOS focuses on the unglamorous but expensive part of the day:
+In-house legal teams are drowning in work scattered across email, Slack, Jira, and spreadsheets. MatterOS gives a 2-3 person legal team:
 
-- turning scattered activity into structured suggestions
-- reviewing and approving side effects before they happen
-- keeping an auditable record of what changed, when, and why
+- a single queue of everything that needs attention
+- deadline tracking that won't let things slip
+- privilege-aware access controls so sensitive matters stay protected
+- an auditable record of what changed, when, and why
 
 ## What MatterOS can do today
 
-- Playbook-driven workflow execution (`collect`, `transform`, `llm`, `approve`, `apply`)
-- Dry-run planning with zero external writes
-- Approval-gated apply steps for side effects
-- Hash-chained audit logs in SQLite + JSONL with verification CLI
-- Microsoft Graph calendar/mail, filesystem, CSV export connectors
-- Optional Slack, Jira, GitHub, iCal connectors
-- Local plugin connector discovery from `~/.matteros/plugins` or `<home>/plugins`
-- Proactive drafts queue + review, learning, and digest commands
-- Background daemon scheduler + activity watcher
-- TUI dashboard + Web dashboard
-- Team user/reporting primitives
+- **Matter management** — create, track, and resolve matters (contracts, requests, compliance) with flexible metadata
+- **My Queue** — see what's assigned to you, sorted by urgency, with overdue alerts
+- **Deadline tracking** — first-class deadlines with overdue/upcoming views
+- **Activity threads** — comment on matters, track status changes with full audit trail
+- **Privilege controls** — privileged matters are invisible to non-legal users, redacted in audit logs, and never sent to external systems
+- **Per-matter authorization** — legal/GC roles with contact-scoped visibility for business stakeholders
+- **Hash-chained audit logs** in SQLite + JSONL with verification CLI
+- **Connectors** — Jira, Slack, Microsoft Graph, GitHub, filesystem, and plugin SDK
+- **Web dashboard** — FastAPI + HTMX, no Node.js required
+- **TUI dashboard** + CLI for power users
+- **Background daemon** — scheduler + activity watcher
+- **LLM triage** — classify and route incoming matters (no content generation)
 
 ## Install
 
@@ -57,45 +59,16 @@ More install options: [docs/INSTALL.md](./docs/INSTALL.md)
 
 ```bash
 matteros init
-matteros onboard --non-interactive --yes --skip-auth
-matteros connectors list
-matteros playbooks list
-
-matteros run playbooks/daily_time_capture.yml \
-  --dry-run \
-  --input tests/fixtures/run_input.json
-
-matteros audit show --last 20
-matteros audit verify --run-id <RUN_ID> --source both
+matteros team init --admin admin
+matteros web --open
 ```
 
-## Typical daily flow
+Log in with the temporary password printed by `team init`, then:
 
-Generate suggestions:
-
-```bash
-matteros run playbooks/daily_time_capture.yml \
-  --dry-run \
-  --input tests/fixtures/run_input.json
-```
-
-Review drafts interactively:
-
-```bash
-matteros review --limit 20
-```
-
-Learn from feedback history:
-
-```bash
-matteros learn --all
-```
-
-Get a weekly digest:
-
-```bash
-matteros digest --period week
-```
+1. **My Queue** shows matters assigned to you
+2. Click **New Matter** to create your first matter
+3. **Deadlines** shows what's coming up
+4. **All Matters** shows everything with filters
 
 ## Interfaces
 
@@ -123,7 +96,7 @@ pip install -e '.[tui]'
 matteros web --open
 ```
 
-On startup, MatterOS prints a bootstrap URL with a one-time access token query parameter. Open that URL first. Keep it private.
+Opens the matter management UI at `http://127.0.0.1:8741`. Views: My Queue, All Matters, Deadlines, Matter Detail with activity threads.
 
 If web dependencies are missing:
 
@@ -143,20 +116,21 @@ matteros daemon logs --lines 100
 
 ```bash
 matteros team init --admin admin
-matteros team add-user alice --role attorney
+matteros team add-user alice --role legal
 matteros team list-users
-matteros team report matters
 ```
+
+Roles: `legal` (full matter access) and `gc` (legal + user management + dashboards).
 
 ## Safety model
 
-- Connectors declare explicit read/write operations.
-- Policy blocks undeclared or invalid operations.
-- Write side effects occur only in `apply` steps.
-- Approval flow is explicit (`--approve`) and reviewable.
-- Audit events are append-only and hash-linked.
-- `matteros audit verify` validates chain integrity.
-- Remote LLMs are opt-in; local provider is default.
+- **Privilege-first** — matters default to privileged; exposure requires explicit action
+- **Privilege-aware audit** — privileged matter content is never logged in plain text
+- **Per-matter authorization** — contacts see only non-privileged matters they're linked to
+- **LLM boundary** — LLM triage receives only metadata, never substance; privileged titles are replaced with generic labels
+- Audit events are append-only and hash-linked
+- `matteros audit verify` validates chain integrity
+- Remote LLMs are opt-in; local provider is default
 
 Deep dive docs:
 
