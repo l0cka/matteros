@@ -322,3 +322,28 @@ class MatterStore:
                 (matter_id, matter_id),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    # ── Deadline helpers (automation) ────────────────────────────────
+
+    def mark_deadline_missed(self, deadline_id: int) -> None:
+        with self._db.connection() as conn:
+            conn.execute(
+                "UPDATE deadlines SET status = 'missed' WHERE id = ?",
+                (deadline_id,),
+            )
+            conn.commit()
+
+    def list_all_pending_deadlines(self) -> list[dict[str, Any]]:
+        """Return all pending deadlines with matter info."""
+        with self._db.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT d.*, m.title AS matter_title, m.type AS matter_type,
+                       m.privileged AS matter_privileged
+                FROM deadlines d
+                JOIN matters m ON m.id = d.matter_id
+                WHERE d.status = 'pending'
+                ORDER BY d.due_date ASC
+                """,
+            ).fetchall()
+        return [dict(r) for r in rows]
