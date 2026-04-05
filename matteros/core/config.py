@@ -64,6 +64,10 @@ class ConnectorsConfig(BaseModel):
     ical_enabled: bool = True
 
 
+class AutomationsConfig(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+
 class MatterOSConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -75,6 +79,7 @@ class MatterOSConfig(BaseModel):
     ms_graph: MSGraphConfig = Field(default_factory=MSGraphConfig)
     onboarding: OnboardingConfig = Field(default_factory=OnboardingConfig)
     connectors: ConnectorsConfig = Field(default_factory=ConnectorsConfig)
+    automations: AutomationsConfig = Field(default_factory=AutomationsConfig)
 
 
 class LoadedConfig(BaseModel):
