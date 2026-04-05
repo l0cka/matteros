@@ -84,10 +84,15 @@ class TestUpdateMatter:
         assert store.get_matter(mid)["status"] == "active"
 
     def test_update_assignee(self, store):
+        # Insert a user so the FK constraint on assignee_id is satisfied.
+        with store._db.connection() as conn:
+            conn.execute(
+                "INSERT INTO users (id, username, role) VALUES ('user-1', 'alice', 'legal')"
+            )
+            conn.commit()
         mid = store.create_matter(title="Assign", type="litigation")
-        # assignee_id can be set to None or a user id; None is valid
-        store.update_matter(mid, assignee_id=None)
-        assert store.get_matter(mid)["assignee_id"] is None
+        store.update_matter(mid, assignee_id="user-1")
+        assert store.get_matter(mid)["assignee_id"] == "user-1"
 
     def test_update_privilege_downgrade(self, store):
         mid = store.create_matter(title="Downgrade", type="litigation")
@@ -160,6 +165,10 @@ class TestActivities:
         )
         activities = store.list_activities(mid)
         assert activities[0]["visibility"] == "internal"
+
+    def test_add_activity_nonexistent_matter_raises(self, store):
+        with pytest.raises(ValueError, match="matter not found: does-not-exist"):
+            store.add_activity(matter_id="does-not-exist", type="note")
 
 
 # ── TestContacts ─────────────────────────────────────────────────────

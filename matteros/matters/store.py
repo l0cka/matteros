@@ -138,7 +138,9 @@ class MatterStore:
     ) -> int:
         # If matter is privileged, force visibility to 'internal'
         matter = self.get_matter(matter_id)
-        if matter and matter["privileged"]:
+        if matter is None:
+            raise ValueError(f"matter not found: {matter_id}")
+        if matter["privileged"]:
             visibility = "internal"
 
         content_json = json.dumps(content) if content is not None else None
@@ -153,7 +155,7 @@ class MatterStore:
                 (matter_id, actor_id, type, visibility, content_json, now),
             )
             conn.commit()
-            return cursor.lastrowid
+            return int(cursor.lastrowid)
 
     def list_activities(self, matter_id: str) -> list[dict[str, Any]]:
         with self._db.connection() as conn:
@@ -241,7 +243,7 @@ class MatterStore:
                 (matter_id, label, due_date, type, alert_before, recurring, now),
             )
             conn.commit()
-            return cursor.lastrowid
+            return int(cursor.lastrowid)
 
     def list_deadlines(self, matter_id: str) -> list[dict[str, Any]]:
         with self._db.connection() as conn:
@@ -297,7 +299,7 @@ class MatterStore:
                 (source_id, target_id, type, now),
             )
             conn.commit()
-            return cursor.lastrowid
+            return int(cursor.lastrowid)
 
     def list_relationships(self, matter_id: str) -> list[dict[str, Any]]:
         with self._db.connection() as conn:
