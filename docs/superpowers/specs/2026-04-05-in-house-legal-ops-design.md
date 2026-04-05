@@ -138,11 +138,162 @@ Business submits requests via a Jira project they already use. MatterOS syncs th
 - For privileged matters: title replaced with "Privileged matter #[id]"
 - No matter substance ever reaches the LLM
 
+## Database Schema
+
+The existing playbook-centric tables (`runs`, `steps`, `approvals`) are replaced by first-class matter tables. This is a hard prerequisite — no feature work begins until these tables exist and the web/API layer reads from them.
+
+### Tables
+
+**matters**
+```
+id              TEXT PRIMARY KEY
+title           TEXT NOT NULL
+type            TEXT NOT NULL  -- contract, request, compliance, custom
+status          TEXT NOT NULL DEFAULT 'new'  -- new, in_progress, on_hold, resolved
+assignee_id     TEXT REFERENCES users(id)
+priority        TEXT DEFAULT 'medium'  -- low, medium, high, urgent
+privileged      INTEGER NOT NULL DEFAULT 1  -- privilege-first: default protected
+source          TEXT  -- manual, jira, email, slack
+source_ref      TEXT  -- external ID (e.g., Jira ticket key)
+metadata_json   TEXT  -- flexible key-value for type-specific fields
+created_at      TEXT NOT NULL
+updated_at      TEXT NOT NULL
+due_date        TEXT
+resolved_at     TEXT
+```
+
+**activities**
+```
+id              INTEGER PRIMARY KEY AUTOINCREMENT
+matter_id       TEXT NOT NULL REFERENCES matters(id)
+actor_id        TEXT REFERENCES users(id)
+type            TEXT NOT NULL  -- comment, status_change, file_attach, deadline_update, assignment
+visibility      TEXT NOT NULL DEFAULT 'internal'  -- internal, external
+content_json    TEXT  -- activity payload (redacted in audit, see below)
+created_at      TEXT NOT NULL
+```
+- On privileged matters, visibility is forced to `internal` at write time — the application layer does not rely on callers to set this correctly.
+
+**contacts**
+```
+id              TEXT PRIMARY KEY
+name            TEXT NOT NULL
+email           TEXT NOT NULL UNIQUE
+department      TEXT
+created_at      TEXT NOT NULL
+```
+
+**matter_contacts**
+```
+matter_id       TEXT NOT NULL REFERENCES matters(id)
+contact_id      TEXT NOT NULL REFERENCES contacts(id)
+role            TEXT DEFAULT 'requestor'  -- requestor, counterparty, stakeholder
+PRIMARY KEY (matter_id, contact_id)
+```
+
+**deadlines**
+```
+id              INTEGER PRIMARY KEY AUTOINCREMENT
+matter_id       TEXT NOT NULL REFERENCES matters(id)
+label           TEXT NOT NULL
+due_date        TEXT NOT NULL
+type            TEXT NOT NULL DEFAULT 'hard'  -- hard, soft
+alert_before    TEXT  -- ISO 8601 duration (e.g., P14D, P30D)
+recurring       TEXT  -- recurrence rule (e.g., P1Y for annual)
+status          TEXT NOT NULL DEFAULT 'pending'  -- pending, completed, missed
+created_at      TEXT NOT NULL
+```
+
+**matter_relationships**
+```
+id              INTEGER PRIMARY KEY AUTOINCREMENT
+source_id       TEXT NOT NULL REFERENCES matters(id)
+target_id       TEXT NOT NULL REFERENCES matters(id)
+type            TEXT NOT NULL  -- renewal_of, triggered_by, blocks, related_to
+created_at      TEXT NOT NULL
+UNIQUE (source_id, target_id, type)
+```
+
+### Migration strategy
+
+- New tables are added via the existing migration runner in `matteros/core/migrations/`.
+- The old `runs`, `steps`, and `approvals` tables are retained but deprecated — no new code reads from them. They can be dropped in a future release.
+- The web/API layer is rewritten to query `matters`/`activities`/`deadlines` instead of `runs`/`steps`.
+
+## Privilege-Aware Audit Logging
+
+The current audit logger (`matteros/core/audit.py`) writes full event payloads as plaintext JSON into both SQLite and the JSONL audit file. This violates the privilege boundary. The audit system must be redesigned before any matter data flows through it.
+
+### Redaction model
+
+Audit events are split into two categories at write time:
+
+**Safe metadata (always logged in full):**
+- Matter ID, event type, actor ID, timestamp
+- Status changes (old status, new status)
+- Assignment changes (old assignee, new assignee)
+- Deadline created/updated/completed (deadline ID, due date)
+- Access events (matter ID, accessor ID, action)
+
+**Sensitive content (redacted for privileged matters):**
+- Activity content (comments, notes)
+- Matter metadata values (counterparty names, contract values)
+- File attachment names and content
+- Email/Slack message bodies from intake
+
+### Implementation
+
+- The audit logger receives a `privileged: bool` flag with every event.
+- When `privileged=True`, the `data_json` field stores only the safe metadata fields listed above. Sensitive content is omitted entirely — not masked, not hashed, not stored.
+- When `privileged=False`, the full payload is logged as today.
+- The JSONL audit file follows the same rules. Hash chaining continues to work — it chains over whatever payload is written, redacted or not.
+- A new audit event type `privileged_access` logs every read of a privileged matter: `{matter_id, accessor_id, action, timestamp}`. No content.
+
+### Connector-level enforcement
+
+- Jira sync connector: only emits status and due_date fields, never activity content. For privileged matters, sync is disabled entirely.
+- Slack notification connector: messages contain only matter ID, status, and due date. Privileged matters produce no Slack notifications.
+- These boundaries are enforced in the connector implementations, not in the UI or API layer.
+
+## Authorization Model
+
+The current role-based system (`dev`, `reviewer`, etc. with global permissions like `view_runs`) cannot express contact-scoped visibility. It must be replaced with a subject-plus-object authorization model.
+
+### Subjects
+
+- **Legal team member** — a user with role `legal`. Full access to all matters.
+- **GC** — a user with role `gc`. Same as legal, plus team dashboards.
+- **Contact** — a contact record (not a user). No MatterOS login. Visibility is expressed through the Jira sync boundary, not through direct access.
+
+### Authorization rules
+
+All matter access is evaluated per-matter, not by global role:
+
+1. **Legal team / GC** — can read/write all matters, all activities, all metadata. No restrictions.
+2. **Contact visibility** (for Jira sync / future API) — a contact can see a matter only if:
+   - The matter is linked to them in `matter_contacts`, AND
+   - The matter has `privileged = false`
+   - Visible fields: `title`, `status`, `due_date`, `priority` only. No activities, metadata, files, or relationships.
+3. **Privileged matters** — invisible to contacts entirely. The Jira sync skips them. No status, no title, no acknowledgment of existence.
+
+### Enforcement points
+
+- **Web API layer** — every matter query filters by the requesting user's authorization. Legal/GC users see all; contacts (if a future portal is added) see only linked non-privileged matters with field projection.
+- **Jira sync connector** — evaluates `privileged` and `matter_contacts` before syncing any status update. Privileged matters are never synced.
+- **Audit logger** — logs all access to privileged matters as `privileged_access` events (see above).
+
+### Migration from current auth
+
+- Existing roles (`dev`, `reviewer`) map to `legal`.
+- The `admin` role maps to `gc`.
+- Contact records are a new entity — no existing users need migration.
+- The permission strings (`view_runs`, `view_audit`, etc.) are replaced with the matter-level rules above. Old permission checks in the web layer are removed.
+
 ## Architecture
 
 ### Retained from current codebase
 
-- **SQLite store + audit logger** — hash-chained, verified
+- **SQLite store** — hash-chained audit verification retained
 - **Connector framework** — Jira, Slack, email, filesystem connectors already exist
 - **Event bus** — real-time updates
 - **Web layer** — FastAPI + HTMX + Jinja2 (no Node.js)
@@ -151,9 +302,23 @@ Business submits requests via a Jira project they already use. MatterOS syncs th
 
 ### Rethought
 
-- **Domain model** — new tables (`matters`, `activities`, `contacts`, `deadlines`, `matter_relationships`) replace playbook-centric `runs`/`steps` tables
+- **Domain model** — new tables (`matters`, `activities`, `contacts`, `deadlines`, `matter_relationships`) replace playbook-centric `runs`/`steps` tables. See Database Schema section.
+- **Audit logger** — privilege-aware redaction at write time. See Privilege-Aware Audit Logging section.
+- **Authorization** — subject-plus-object model replacing global role permissions. See Authorization Model section.
 - **Runner -> Automation Engine** — step-based runner becomes event-driven. Instead of "run a playbook," it's "when a Jira ticket is created, execute the intake automation."
 - **Playbooks become internal** — YAML playbook concept can still exist for defining automation recipes, but users never see or edit them. Automations configured through the web UI.
+
+### Build sequence
+
+These must be implemented in order — each layer depends on the previous:
+
+1. **Database schema + migrations** — matter tables, contact tables, deadline tables, relationship tables
+2. **Privilege-aware audit logger** — redaction model, privileged_access events, connector-level enforcement
+3. **Authorization model** — subject-plus-object evaluation, per-matter access checks
+4. **Core matter CRUD** — create/read/update matters, activities, deadlines, contacts
+5. **Web UI** — My Queue, All Matters, Deadlines, Matter Detail views
+6. **Automation engine** — intake (Jira/email/Slack), deadline alerts, stale detection, LLM triage
+7. **Jira sync** — bidirectional sync with privilege boundary enforcement
 
 ### Deployment
 
