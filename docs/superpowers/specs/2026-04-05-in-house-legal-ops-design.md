@@ -1,12 +1,12 @@
-# MatterOS: In-House Legal Ops Redesign
+# MatterOS: Legal Ops Redesign
 
 ## Overview
 
-Redesign MatterOS from a playbook-driven legal ops tool (focused on time capture for private law firms) into a matter management platform for lean in-house legal teams. The core problem: small legal teams are drowning in contracts, business requests, and compliance deadlines, tracking everything across email, spreadsheets, and Slack.
+Redesign MatterOS from a playbook-driven legal ops tool (focused on time capture) into a matter management platform for lean legal teams. The core problem: small legal teams are drowning in contracts, requests, and compliance deadlines, tracking everything across email, spreadsheets, and Slack.
 
 ## Primary User
 
-The working in-house lawyer (2-3 person team). The system also serves the GC (dashboard/visibility) and business stakeholders (request status via Jira), but the working lawyer's daily experience anchors all design decisions.
+The working lawyer on a lean team (2-3 people). The system also serves the GC (dashboard/visibility) and business stakeholders (request status via Jira), but the working lawyer's daily experience anchors all design decisions.
 
 ## Core Workflows
 

@@ -1,4 +1,4 @@
-"""Per-matter authorization for the in-house legal ops model."""
+"""Per-matter authorization for the legal ops model."""
 from __future__ import annotations
 
 from typing import Any
