@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +22,7 @@ from matteros.core.events import EventBus
 from matteros.core.factory import resolve_home
 from matteros.core.store import SQLiteStore
 from matteros.drafts.manager import DraftManager
+from matteros.matters.store import MatterStore
 from matteros.web.auth import (
     SESSION_COOKIE_NAME,
     create_session,
@@ -121,33 +123,92 @@ def create_app(*, home: Path | None = None) -> FastAPI:
         response.delete_cookie(SESSION_COOKIE_NAME)
         return response
 
-    # ---------- Dashboard ----------
+    # ---------- My Queue (dashboard) ----------
 
     @app.get("/", response_class=HTMLResponse)
-    async def dashboard(request: Request) -> HTMLResponse:
+    async def my_queue(request: Request) -> HTMLResponse:
         store = _store()
-        conn = store._connect()
-        try:
-            run_count = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-            recent_runs = conn.execute(
-                "SELECT id, playbook_name, status, started_at, dry_run "
-                "FROM runs ORDER BY started_at DESC LIMIT 10"
-            ).fetchall()
-            pending_approvals = conn.execute(
-                "SELECT COUNT(*) FROM approvals WHERE decision = 'pending'"
-            ).fetchone()[0]
-        finally:
-            conn.close()
+        ms = MatterStore(store)
+        user = request.state.user
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
 
-        loaded = load_config(path=home_dir / "config.yml", home=home_dir)
-        cfg = loaded.config
+        # Get matters assigned to this user, excluding resolved
+        all_assigned = ms.list_matters(assignee_id=user["id"])
+        matters = [m for m in all_assigned if m.get("status") != "resolved"]
 
-        return templates.TemplateResponse(request, "dashboard.html", {
-            "run_count": run_count,
-            "pending_approvals": pending_approvals,
-            "recent_runs": [dict(r) for r in recent_runs],
-            "config": cfg,
-            "home": str(home_dir),
+        # Mark overdue
+        for m in matters:
+            if m.get("due_date") and m["due_date"][:10] < today:
+                m["is_overdue"] = True
+            else:
+                m["is_overdue"] = False
+
+        overdue_count = sum(1 for m in matters if m["is_overdue"])
+
+        # Sort: overdue first, then by due_date (nulls last), then by priority
+        priority_order = {"urgent": 0, "high": 1, "medium": 2, "low": 3}
+
+        def sort_key(m: dict) -> tuple:
+            return (
+                0 if m["is_overdue"] else 1,
+                m["due_date"][:10] if m.get("due_date") else "9999-99-99",
+                priority_order.get(m.get("priority", "medium"), 2),
+            )
+
+        matters.sort(key=sort_key)
+
+        # Upcoming deadlines (next 7 days)
+        next_week = (datetime.now(UTC) + timedelta(days=7)).strftime("%Y-%m-%d")
+        upcoming_deadlines = ms.list_upcoming_deadlines(before=next_week)
+
+        return templates.TemplateResponse(request, "my_queue.html", {
+            "matters": matters,
+            "overdue_count": overdue_count,
+            "upcoming_deadlines": upcoming_deadlines,
+        })
+
+    # ---------- All Matters ----------
+
+    @app.get("/matters", response_class=HTMLResponse)
+    async def all_matters(
+        request: Request,
+        status: str | None = Query(None),
+        type: str | None = Query(None),
+    ) -> HTMLResponse:
+        store = _store()
+        ms = MatterStore(store)
+        filters: dict[str, Any] = {}
+        if status:
+            filters["status"] = status
+        if type:
+            filters["type"] = type
+        matters = ms.list_matters(**filters)
+
+        return templates.TemplateResponse(request, "all_matters.html", {
+            "matters": matters,
+            "filter_status": status or "",
+            "filter_type": type or "",
+        })
+
+    # ---------- Matter Detail ----------
+
+    @app.get("/matters/{matter_id}", response_class=HTMLResponse)
+    async def matter_detail(request: Request, matter_id: str) -> HTMLResponse:
+        store = _store()
+        ms = MatterStore(store)
+        matter = ms.get_matter(matter_id)
+        if not matter:
+            raise HTTPException(status_code=404, detail="Matter not found")
+
+        activities = ms.list_activities(matter_id)
+        deadlines = ms.list_deadlines(matter_id)
+        relationships = ms.list_relationships(matter_id)
+
+        return templates.TemplateResponse(request, "matter_detail.html", {
+            "matter": matter,
+            "activities": activities,
+            "deadlines": deadlines,
+            "relationships": relationships,
         })
 
     # ---------- Runs ----------

@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ matter.title }}{% endblock %}
+{% block content %}
+<div style="display:flex; align-items:center; gap:1rem; margin-bottom:1rem">
+    <a href="/matters" style="color:var(--muted); text-decoration:none;">&larr; All Matters</a>
+</div>
+
+<div style="display:flex; align-items:baseline; gap:1rem; margin-bottom:0.5rem">
+    <h2 style="margin-bottom:0; text-transform:none; letter-spacing:0">{{ matter.title }}</h2>
+    <span class="badge badge-{{ matter.status }}">{{ matter.status }}</span>
+    <span class="badge badge-{{ matter.priority }}">{{ matter.priority }}</span>
+    {% if matter.privileged %}<span class="badge badge-red">privileged</span>{% endif %}
+</div>
+
+<div style="color:var(--muted); font-size:0.8rem; margin-bottom:1.5rem">
+    {{ matter.type }} &middot; created {{ matter.created_at[:10] }}
+    {% if matter.source %} &middot; via {{ matter.source }}{% endif %}
+    {% if matter.assignee_id %} &middot; assigned to {{ matter.assignee_id[:8] }}{% endif %}
+</div>
+
+<div class="card">
+    <h2 style="font-size:0.85rem">Activity</h2>
+    <div class="activity-thread">
+        {% for a in activities %}
+        <div class="activity-item">
+            <div class="activity-meta">
+                {{ a.type }} &middot; {{ a.created_at[:19] }}
+                {% if a.visibility == "internal" %} &middot; <span style="color:var(--yellow)">internal</span>{% endif %}
+            </div>
+            {% if a.content and a.content.text %}
+            <div>{{ a.content.text }}</div>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% if not activities %}
+        <div style="color:var(--muted); padding:1rem; text-align:center;">No activity yet.</div>
+        {% endif %}
+    </div>
+
+    <form method="POST" action="/matters/{{ matter.id }}/comment" style="margin-top:1rem; display:flex; gap:0.5rem;">
+        <input type="text" name="comment" placeholder="Add a comment..." style="flex:1;">
+        <button type="submit" class="btn">Post</button>
+    </form>
+</div>
+
+{% if deadlines %}
+<div class="card" style="margin-top:1rem;">
+    <h2 style="font-size:0.85rem">Deadlines</h2>
+    <table>
+        <thead><tr><th>Label</th><th>Due</th><th>Type</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for d in deadlines %}
+        <tr>
+            <td>{{ d.label }}</td>
+            <td>{{ d.due_date[:10] }}</td>
+            <td>{{ d.type }}</td>
+            <td><span class="badge badge-{{ 'green' if d.status == 'completed' else 'yellow' }}">{{ d.status }}</span></td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if matter.metadata %}
+<div class="card" style="margin-top:1rem;">
+    <h2 style="font-size:0.85rem">Details</h2>
+    <pre>{{ matter.metadata | tojson(indent=2) }}</pre>
+</div>
+{% endif %}
+
+{% if relationships %}
+<div class="card" style="margin-top:1rem;">
+    <h2 style="font-size:0.85rem">Related Matters</h2>
+    {% for r in relationships %}
+    <div style="padding:0.25rem 0; font-size:0.85rem;">
+        {{ r.type }} &rarr; <a href="/matters/{{ r.target_id }}" style="color:var(--accent)">{{ r.target_id[:8] }}</a>
+    </div>
+    {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
