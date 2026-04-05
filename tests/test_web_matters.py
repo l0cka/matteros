@@ -199,6 +199,28 @@ class TestMatterActions:
         assert matter["status"] == "in_progress"
 
 
+class TestDeadlines:
+    def test_deadlines_returns_200(self, tmp_path: Path):
+        home = tmp_path / "home"
+        home.mkdir()
+        client = _make_client(home)
+        response = client.get("/deadlines")
+        assert response.status_code == 200
+        assert "Deadlines" in response.text
+
+    def test_deadlines_shows_upcoming(self, tmp_path: Path):
+        home = tmp_path / "home"
+        home.mkdir()
+        client = _make_client(home)
+        ms = _matter_store(home)
+        matter_id = ms.create_matter(title="Filing", type="compliance")
+        ms.create_deadline(matter_id=matter_id, label="Q4 Report", due_date="2027-12-31")
+
+        response = client.get("/deadlines")
+        assert "Q4 Report" in response.text
+        assert "Filing" in response.text
+
+
 class TestCreateMatter:
     def test_new_matter_form_returns_200(self, tmp_path: Path):
         home = tmp_path / "home"

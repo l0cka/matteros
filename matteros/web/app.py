@@ -167,6 +167,42 @@ def create_app(*, home: Path | None = None) -> FastAPI:
             "upcoming_deadlines": upcoming_deadlines,
         })
 
+    # ---------- Deadlines ----------
+
+    @app.get("/deadlines", response_class=HTMLResponse)
+    async def deadlines_page(request: Request) -> HTMLResponse:
+        store = _store()
+        ms = MatterStore(store)
+        now = datetime.now(UTC)
+        today = now.strftime("%Y-%m-%dT%H:%M:%S")
+        week_end = (now + timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%S")
+        month_end = (now + timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%S")
+
+        all_deadlines = ms.list_upcoming_deadlines(before="2099-12-31T23:59:59")
+
+        overdue = []
+        this_week = []
+        this_month = []
+        upcoming = []
+
+        for d in all_deadlines:
+            due = d["due_date"][:19]  # normalize to YYYY-MM-DDTHH:MM:SS
+            if due < today:
+                overdue.append(d)
+            else:
+                upcoming.append(d)
+                if due <= week_end:
+                    this_week.append(d)
+                elif due <= month_end:
+                    this_month.append(d)
+
+        return templates.TemplateResponse(request, "deadlines.html", {
+            "overdue": overdue,
+            "this_week": this_week,
+            "this_month": this_month,
+            "upcoming": upcoming,
+        })
+
     # ---------- All Matters ----------
 
     @app.get("/matters", response_class=HTMLResponse)
