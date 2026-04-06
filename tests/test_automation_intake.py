@@ -207,4 +207,18 @@ class TestSlackIntake:
             ms=ms, state=state, slack_connector=connector, channel="C123",
         )
 
-        assert state.get("slack_intake:last_poll") is not None
+        assert state.get("slack_intake:last_poll") == "1712345678.000600"
+
+    def test_advances_cursor_to_latest_seen_message_timestamp(self, env):
+        ms, state = env
+        connector = MagicMock()
+        connector.read.return_value = [
+            _slack_message("Need contract review", "1712345678.000100"),
+            _slack_message("Bot msg", "1712345678.000900", bot_id="B123"),
+        ]
+
+        handle_slack_intake(
+            ms=ms, state=state, slack_connector=connector, channel="C123",
+        )
+
+        assert state.get("slack_intake:last_poll") == "1712345678.000900"

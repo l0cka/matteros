@@ -138,6 +138,13 @@ class TestListMatters:
         results = store.list_matters(assignee_id="nobody")
         assert len(results) == 0
 
+    def test_list_filter_by_source_ref(self, store):
+        store.create_matter(title="Jira", type="request", source_ref="LEG-123")
+        store.create_matter(title="Slack", type="request", source_ref="C123:1")
+        results = store.list_matters(source_ref="LEG-123")
+        assert len(results) == 1
+        assert results[0]["title"] == "Jira"
+
 
 # ── TestActivities ───────────────────────────────────────────────────
 
@@ -193,6 +200,11 @@ class TestContacts:
         store.create_contact(name="A", email="dup@example.com")
         with pytest.raises(sqlite3.IntegrityError):
             store.create_contact(name="B", email="dup@example.com")
+
+    def test_get_contact_by_email(self, store):
+        cid = store.create_contact(name="Alice", email="alice@example.com")
+        assert store.get_contact_by_email("alice@example.com") == cid
+        assert store.get_contact_by_email("missing@example.com") is None
 
 
 # ── TestDeadlines ────────────────────────────────────────────────────

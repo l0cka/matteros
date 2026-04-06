@@ -1,12 +1,19 @@
 """Deadline checker — flags missed and approaching deadlines."""
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime
 from typing import Any
 
 from matteros.automation.notify import build_alert_message, send_slack_alert
 from matteros.automation.state import AutomationState
 from matteros.matters.store import MatterStore
+
+
+def _parse_due(due: str) -> tuple[datetime | None, date]:
+    due_dt = datetime.fromisoformat(due)
+    if due_dt.tzinfo is None:
+        due_dt = due_dt.replace(tzinfo=UTC)
+    return (due_dt if "T" in due else None), due_dt.date()
 
 
 def check_deadlines(
@@ -22,7 +29,7 @@ def check_deadlines(
     Returns a list of human-readable action descriptions.
     """
     now = datetime.now(UTC)
-    today = now.strftime("%Y-%m-%dT00:00:00")
+    today = now.date()
     actions: list[str] = []
 
     deadlines = ms.list_all_pending_deadlines()
@@ -31,11 +38,13 @@ def check_deadlines(
         dl_id = dl["id"]
         label = dl["label"]
         due = dl["due_date"]
+        due_dt, due_day = _parse_due(due)
         matter_id = dl["matter_id"]
         matter_title = dl["matter_title"]
         privileged = bool(dl["matter_privileged"])
 
-        if due < today:
+        is_overdue = due_dt < now if due_dt is not None else due_day < today
+        if is_overdue:
             # Overdue
             dedup_key = f"deadline_alert:{dl_id}:missed"
             if state.has(dedup_key):
@@ -66,14 +75,13 @@ def check_deadlines(
             actions.append(f"Marked deadline {dl_id} as missed: {label}")
         else:
             # Approaching — check alert windows
-            due_dt = datetime.fromisoformat(due).replace(tzinfo=UTC)
-            days_until = (due_dt - now).days
+            days_until = max((due_day - today).days, 0)
 
             for window in sorted(alert_windows_days, reverse=True):
                 if days_until <= window:
                     dedup_key = f"deadline_alert:{dl_id}:{window}"
                     if state.has(dedup_key):
-                        break
+                        continue
 
                     text = f"Deadline approaching: {label} — due in {days_until} days"
                     ms.add_activity(

@@ -1,6 +1,7 @@
 """Intake handlers for Jira and Slack — poll external sources and create matters."""
 from __future__ import annotations
 
+from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any
 
@@ -10,6 +11,14 @@ from matteros.matters.store import MatterStore
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _max_slack_ts(current: str | None, candidate: str | None) -> str | None:
+    if not candidate:
+        return current
+    if current is None:
+        return candidate
+    return candidate if Decimal(candidate) > Decimal(current) else current
 
 
 def _ensure_contact(ms: MatterStore, matter_id: str, reporter: dict[str, Any]) -> None:
@@ -103,7 +112,10 @@ def handle_slack_intake(
     )
 
     actions: list[str] = []
+    latest_ts = last_poll
     for msg in messages:
+        latest_ts = _max_slack_ts(latest_ts, msg.get("ts"))
+
         # Skip bot messages
         if msg.get("bot_id") or msg.get("subtype"):
             continue
@@ -151,5 +163,6 @@ def handle_slack_intake(
 
         actions.append(f"Created matter from Slack message: {title}")
 
-    state.set("slack_intake:last_poll", _now_iso())
+    if latest_ts is not None:
+        state.set("slack_intake:last_poll", latest_ts)
     return actions

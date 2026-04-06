@@ -63,6 +63,34 @@ class TestDeadlineChecker:
         assert len(activities) == 1
         assert "approaching" in activities[0]["content"]["text"].lower()
 
+    def test_same_day_date_only_deadline_is_not_marked_missed(self, env):
+        ms, state = env["ms"], env["state"]
+        mid = ms.create_matter(title="NDA Review", type="contract")
+        ms.create_deadline(
+            matter_id=mid,
+            label="Same-day filing",
+            due_date=datetime.now(UTC).date().isoformat(),
+        )
+
+        actions = check_deadlines(ms=ms, state=state, alert_windows_days=[1])
+
+        deadlines = ms.list_deadlines(mid)
+        assert deadlines[0]["status"] == "pending"
+        assert len(actions) == 1
+        assert "due in 0 days" in actions[0]
+
+    def test_continues_to_smaller_windows_after_prior_alert(self, env):
+        ms, state = env["ms"], env["state"]
+        mid = ms.create_matter(title="NDA Review", type="contract")
+        dl_id = ms.create_deadline(matter_id=mid, label="Filing", due_date=_future_date(5))
+        state.set(f"deadline_alert:{dl_id}:30", datetime.now(UTC).isoformat())
+
+        actions = check_deadlines(ms=ms, state=state, alert_windows_days=[30, 14, 7, 1])
+
+        assert len(actions) == 1
+        assert state.has(f"deadline_alert:{dl_id}:14")
+        assert not state.has(f"deadline_alert:{dl_id}:7")
+
     def test_dedup_prevents_repeat_alerts(self, env):
         ms, state = env["ms"], env["state"]
         mid = ms.create_matter(title="NDA Review", type="contract")
