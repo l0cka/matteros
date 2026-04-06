@@ -101,6 +101,7 @@ class MatterStore:
         status: str | None = None,
         type: str | None = None,
         assignee_id: str | None = None,
+        source_ref: str | None = None,
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
@@ -114,6 +115,9 @@ class MatterStore:
         if assignee_id is not None:
             clauses.append("assignee_id = ?")
             params.append(assignee_id)
+        if source_ref is not None:
+            clauses.append("source_ref = ?")
+            params.append(source_ref)
 
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         params.append(limit)
@@ -207,6 +211,13 @@ class MatterStore:
             )
             conn.commit()
 
+    def get_contact_by_email(self, email: str) -> str | None:
+        with self._db.connection() as conn:
+            row = conn.execute(
+                "SELECT id FROM contacts WHERE email = ?", (email,)
+            ).fetchone()
+            return row["id"] if row else None
+
     def list_matter_contacts(self, matter_id: str) -> list[dict[str, Any]]:
         with self._db.connection() as conn:
             rows = conn.execute(
@@ -255,11 +266,57 @@ class MatterStore:
 
     def complete_deadline(self, deadline_id: int) -> None:
         with self._db.connection() as conn:
+            row = conn.execute(
+                "SELECT * FROM deadlines WHERE id = ?", (deadline_id,)
+            ).fetchone()
+            if not row:
+                return
+
             conn.execute(
                 "UPDATE deadlines SET status = 'completed' WHERE id = ?",
                 (deadline_id,),
             )
+
+            recurring = row["recurring"]
+            if recurring:
+                next_due = self._advance_date(row["due_date"], recurring)
+                if next_due:
+                    now = _now()
+                    conn.execute(
+                        """
+                        INSERT INTO deadlines (matter_id, label, due_date, type, alert_before, recurring, status, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+                        """,
+                        (row["matter_id"], row["label"], next_due, row["type"],
+                         row["alert_before"], recurring, now),
+                    )
+
             conn.commit()
+
+    @staticmethod
+    def _advance_date(due_date: str, duration: str) -> str | None:
+        """Advance a date by an ISO 8601 duration (P1Y, P3M, P1M, P7D, etc.)."""
+        from datetime import date as date_type
+        d = date_type.fromisoformat(due_date[:10])
+
+        if duration.startswith("P") and duration.endswith("Y"):
+            years = int(duration[1:-1])
+            return d.replace(year=d.year + years).isoformat()
+        if duration.startswith("P") and duration.endswith("M"):
+            months = int(duration[1:-1])
+            new_month = d.month + months
+            new_year = d.year + (new_month - 1) // 12
+            new_month = ((new_month - 1) % 12) + 1
+            import calendar
+            max_day = calendar.monthrange(new_year, new_month)[1]
+            new_day = min(d.day, max_day)
+            return date_type(new_year, new_month, new_day).isoformat()
+        if duration.startswith("P") and duration.endswith("D"):
+            from datetime import timedelta as td
+            days = int(duration[1:-1])
+            return (d + td(days=days)).isoformat()
+
+        return None
 
     def list_upcoming_deadlines(
         self,
@@ -309,5 +366,30 @@ class MatterStore:
                 WHERE source_id = ? OR target_id = ?
                 """,
                 (matter_id, matter_id),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    # ── Deadline helpers (automation) ────────────────────────────────
+
+    def mark_deadline_missed(self, deadline_id: int) -> None:
+        with self._db.connection() as conn:
+            conn.execute(
+                "UPDATE deadlines SET status = 'missed' WHERE id = ?",
+                (deadline_id,),
+            )
+            conn.commit()
+
+    def list_all_pending_deadlines(self) -> list[dict[str, Any]]:
+        """Return all pending deadlines with matter info."""
+        with self._db.connection() as conn:
+            rows = conn.execute(
+                """
+                SELECT d.*, m.title AS matter_title, m.type AS matter_type,
+                       m.privileged AS matter_privileged
+                FROM deadlines d
+                JOIN matters m ON m.id = d.matter_id
+                WHERE d.status = 'pending'
+                ORDER BY d.due_date ASC
+                """,
             ).fetchall()
         return [dict(r) for r in rows]
